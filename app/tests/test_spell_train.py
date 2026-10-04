@@ -1,5 +1,7 @@
 """The training side of the spelling head: tagger.py with a tiny random BERT (needs torch + transformers,
 which only the training venv has; elsewhere these tests are skipped)."""
+import hashlib
+import json
 import os
 import random
 import sys
@@ -33,23 +35,21 @@ def tiny(tmp_path):
     return str(tmp_path / "base"), tokenizer
 
 
-def old_make_examples(sents, seed):
-    """make_examples as it was before the spelling head (kept here to prove the default did not change)."""
-    rng = random.Random(seed)
-    out = []
-    for s in sents:
-        c, cm, fm = cr.corrupt(s, rng, **tg.ERROR_DENSITY)
-        if cr.restore(c, cm, fm) == s:
-            out.append((c, cm, fm))
-    return out
+# SHA-256 of make_examples(SENTENCES, seed) for seeds 1 and 12345 with the head off (80 examples), frozen from the
+# recipe of commit 4d71eaa. A change in corrupt() or make_examples that alters the default training data breaks it;
+# if that is intended, regenerate the value and say so in the commit message.
+GOLDEN_FLAGS_OFF = "beab6003c195a28ab2133104f4cfbd907c1d63ac1943e3dd0bbb4cf95816b709"
 
 
-def test_make_examples_with_the_head_off_reproduces_the_old_recipe():
+def test_make_examples_with_the_head_off_matches_the_frozen_output():
     tg.SPELL_DENSITY["p_spell"] = 0.0
+    examples = []
     for seed in (1, 12345):
         new = tg.make_examples(SENTENCES, seed)
-        assert [e[:3] for e in new] == old_make_examples(SENTENCES, seed)
         assert all(e[3] is None for e in new)
+        examples += [list(e) for e in new]
+    assert len(examples) == 80
+    assert hashlib.sha256(json.dumps(examples, ensure_ascii=False).encode("utf-8")).hexdigest() == GOLDEN_FLAGS_OFF
 
 
 def test_make_examples_with_the_head_on_keeps_only_restorable_aligned_examples():
