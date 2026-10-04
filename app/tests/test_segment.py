@@ -46,3 +46,15 @@ def test_text_without_final_period():
 
 def test_empty_and_blank():
     assert split_sentences("") == [] and split_sentences("   ") == []
+
+
+def test_initials_without_spaces_do_not_split():
+    assert parts("Отчёт подписал А.С. Иванов. Он согласен.") == ["Отчёт подписал А.С. Иванов.", "Он согласен."]
+
+
+def test_multiple_initials_do_not_split():
+    assert parts("Директор И.И. Петров утвердил план.") == ["Директор И.И. Петров утвердил план."]
+
+
+def test_abbreviation_with_nds_split():
+    assert parts("В т.ч. НДС уплачен. Далее.") == ["В т.ч. НДС уплачен.", "Далее."]

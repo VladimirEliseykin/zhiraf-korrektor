@@ -9,6 +9,7 @@ ABBREVIATIONS = {
 BREAK = re.compile(r'[.!?…]+[»")\]]*\s+')
 NEXT_STARTS = re.compile(r'[«"(]?[А-ЯЁA-Z0-9]')
 NUMBER_OR_MARKER = re.compile(r"^(\d+(\.\d+)*\.?|[а-яa-z]\)|[IVXLC]+\.?)$")
+INITIALS_ABBREV = re.compile(r"^(\w\.)*\w$")
 
 
 def _skip_space(text, i):
@@ -30,8 +31,8 @@ def split_sentences(text):
         if m.group(0).rstrip().rstrip('»")]') == ".":
             words = head.split()
             last = words[-1].lstrip('«"(').lower() if words else ""
-            if last in ABBREVIATIONS or (len(last) == 1 and last.isalpha()):
-                continue  # "г.", "т. е.", initials "А. С."
+            if last in ABBREVIATIONS or (len(last) == 1 and last.isalpha()) or INITIALS_ABBREV.match(last):
+                continue  # "г.", "т. е.", initials "А. С.", "а.с.", "и.и."
         end = m.start() + len(m.group(0).rstrip())
         spans.append((start, end))
         start = _skip_space(text, m.end())
