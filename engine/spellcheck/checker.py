@@ -20,6 +20,15 @@ SURE_COMMA, SURE_FORM, SURE_DEL = 0.9, 0.9, 0.9
 CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
+STAGES = ("rules", "commas", "forms", "sage")  # value per second of waiting: rules are instant, SAGE is slowest
+STAGE_COST = {"rules": 0.003, "commas": 0.1, "forms": 0.1, "sage": 0.5}  # s/sentence, Windows 7 VM (job5)
+
+
+def visible_level(level, strict):
+    """'strict' findings (a rule that also hits legitimate capitals) are shown as 'check' only in strict mode."""
+    if level == "strict":
+        return "check" if strict else None
+    return level
 
 
 def breaks_grammar(text, start, end, new):
@@ -99,55 +108,63 @@ def merge(found):
 
 
 class Checker:
-    def __init__(self, models_dir, threads=2, process=None):
+    def __init__(self, models_dir, threads=2, process=None, factories=None, strict=False):
         self.models_dir = models_dir
         self.threads = threads
+        self.strict = strict
         self.lexicon = rules.Lexicon(None, os.path.join(models_dir, "vocab.tsv"))
         self.process = process  # psutil.Process for memory statistics, optional
         self.stats = {}
+        self.factories = factories or {
+            "sage": lambda: sage.Sage(os.path.join(models_dir, "sage"), threads),
+            "commas": lambda: EditTagger(os.path.join(models_dir, "commas"), threads),
+            "forms": lambda: EditTagger(os.path.join(models_dir, "forms"), threads),
+        }
 
     def _stage(self, name, started):
         rss = self.process.memory_info().rss // 2 ** 20 if self.process else None
         self.stats[name] = {"seconds": round(time.perf_counter() - started, 1), "rss_mb": rss}
 
-    def check_document(self, sentences, context=None, stages=("sage", "commas", "forms", "rules")):
-        """Findings for each sentence. context: all sentences of the document (defaults to sentences)."""
-        prepared = [prepare(s) for s in sentences]
-        found = [[] for _ in sentences]
-
-        def add(i, items):
-            shift = len(prepared[i][0])
-            for f in items:
-                f = dict(f)
-                f["start"] += shift
-                f["end"] += shift
-                found[i].append(f)
-
-        if "sage" in stages:
-            t = time.perf_counter()
-            model = sage.Sage(os.path.join(self.models_dir, "sage"), self.threads)
-            for i, (_, body) in enumerate(prepared):
-                add(i, sage.findings(body, model.correct(body), self.lexicon))
-            del model
-            gc.collect()
-            self._stage("sage", t)
-        for stage, folder, to_findings in (("commas", "commas", comma_findings), ("forms", "forms", form_findings)):
-            if stage not in stages:
-                continue
-            t = time.perf_counter()
-            model = EditTagger(os.path.join(self.models_dir, folder), self.threads)
-            for i, (_, body) in enumerate(prepared):
-                add(i, to_findings(body, model.predict(body)))
-            del model
-            gc.collect()
-            self._stage(stage, t)
-        if "rules" in stages:
-            t = time.perf_counter()
+    def _stage_function(self, stage, sentences, context):
+        if stage == "rules":
             ctx = rules.DocContext(context if context is not None else sentences, self.lexicon)
-            for i, (_, body) in enumerate(prepared):
-                add(i, [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)])
-            self._stage("rules", t)
+            return lambda body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
+        model = self.factories[stage]()
+        if stage == "sage":
+            return lambda body: sage.findings(body, model.correct(body), self.lexicon)
+        to_findings = comma_findings if stage == "commas" else form_findings
+        return lambda body: to_findings(body, model.predict(body))
+
+    def stream(self, sentences, context=None, stages=STAGES, should_stop=None):
+        """Yield (stage, sentence index, findings) for every sentence and stage as soon as it is checked.
+
+        Stages run one after another and load their model only for their own pass, so at most one
+        model is in memory. Positions are chars of the original sentence (list marker included).
+        """
+        prepared = [prepare(s) for s in sentences]
+        for stage in stages:
+            started = time.perf_counter()
+            check = self._stage_function(stage, sentences, context)
+            for i, (marker, body) in enumerate(prepared):
+                if should_stop is not None and should_stop():
+                    return
+                found = []
+                for f in check(body):
+                    level = visible_level(f["level"], self.strict)
+                    if level is not None:
+                        found.append(dict(f, level=level, start=f["start"] + len(marker), end=f["end"] + len(marker)))
+                yield stage, i, found
+            check = None  # release the model before the next one is loaded
+            gc.collect()
+            self._stage(stage, started)
+
+    def check_document(self, sentences, context=None, stages=STAGES):
+        """Merged findings for each sentence (evaluation, batch runs)."""
+        found = [[] for _ in sentences]
+        for _, i, items in self.stream(sentences, context, stages):
+            found[i].extend(items)
         return [merge(f) for f in found]
+
 
 
 def apply(text, findings, levels=("error",)):
