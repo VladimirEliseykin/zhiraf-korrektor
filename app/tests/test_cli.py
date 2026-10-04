@@ -111,3 +111,14 @@ def test_progress_line_has_no_tail_when_almost_done(capsys):
             return 0.99
     cli._progress_line(Almost())
     assert "осталось" not in capsys.readouterr().err
+
+
+def test_progress_line_never_says_zero_minutes(capsys):
+    class HalfMinute:
+        def remaining_seconds(self):
+            return 30.0
+
+        def fraction(self):
+            return 0.9
+    cli._progress_line(HalfMinute())
+    assert "осталось ≈ 1 мин" in capsys.readouterr().err

@@ -64,7 +64,7 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
 def _progress_line(progress):
     remaining = progress.remaining_seconds()
     done = progress.fraction() >= 1.0
-    tail = "" if remaining is None or done or remaining < 30 else " · осталось ≈ %d мин" % round(remaining / 60)
+    tail = "" if remaining is None or done or remaining < 30 else " · осталось ≈ %d мин" % max(1, round(remaining / 60))
     sys.stderr.write("\rПроверено %d%%%s   " % (round(progress.fraction() * 100), tail))
     sys.stderr.flush()
 
