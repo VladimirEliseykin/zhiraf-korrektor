@@ -6,12 +6,12 @@ import argparse
 import sys
 import time
 
-from . import models_dir as default_models_dir
+from . import missing_models, models_dir as default_models_dir
 from . import storage
 from .documents.model import DocumentError
 from .documents.opener import close_document, open_document, save_document
 from .review import ReviewSession
-from .segment import split_sentences
+from .segment import plan_sentences
 from .worker import CheckJob
 
 
@@ -19,20 +19,14 @@ class CheckError(Exception):
     """The background check died; the message is for the user."""
 
 
-def plan_sentences(paragraphs):
-    sentences, where = [], []
-    for index, text in enumerate(paragraphs):
-        for start, end in split_sentences(text):
-            sentences.append(text[start:end])
-            where.append((index, start))
-    return sentences, where
-
-
 def check_file(path, models, accept_errors=False, out=None, factories=None, stages=None, threads=2, report=None):
     storage.clean_tmp()
     settings = storage.Settings()
     doc = open_document(path)
     try:
+        problem = missing_models(models) if factories is None else None  # fake models need no files
+        if problem:
+            raise CheckError(problem)
         paragraphs = [p.text for p in doc.paragraphs]
         sentences, where = plan_sentences(paragraphs)
         session = ReviewSession(paragraphs, storage.Dictionary())
@@ -50,14 +44,17 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
         finally:
             job.close()
         if job.error is not None:
-            raise CheckError(job.error[1])
+            raise CheckError(job.error[1])  # the user text only; job.error[2] is for the log
         if accept_errors:
             session.accept_all_errors()
         saved = save_document(doc, session.replacements(), out)
         counts = session.counts()
-        storage.Recent(settings).touch(path, {"fixed": counts["fixed"], "skipped": counts["skipped"],
-                                              "handled": counts["total"] - counts["errors"] - counts["checks"],
-                                              "total": counts["total"]})
+        try:
+            storage.Recent(settings).touch(path, {"fixed": counts["fixed"], "skipped": counts["skipped"],
+                                                  "handled": counts["total"] - counts["errors"] - counts["checks"],
+                                                  "total": counts["total"]})
+        except OSError:
+            pass  # the recent list is a convenience: the saved copy must not be lost over it
         return {"counts": counts, "saved": saved.path, "applied": saved.applied,
                 "not_applied": len(saved.skipped), "notice": doc.notice}
     finally:
@@ -66,7 +63,8 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
 
 def _progress_line(progress):
     remaining = progress.remaining_seconds()
-    tail = "" if remaining is None else " · осталось ≈ %d мин" % max(1, round(remaining / 60))
+    done = progress.fraction() >= 1.0
+    tail = "" if remaining is None or done or remaining < 30 else " · осталось ≈ %d мин" % round(remaining / 60)
     sys.stderr.write("\rПроверено %d%%%s   " % (round(progress.fraction() * 100), tail))
     sys.stderr.flush()
 

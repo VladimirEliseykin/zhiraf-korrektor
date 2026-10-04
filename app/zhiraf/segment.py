@@ -40,3 +40,13 @@ def split_sentences(text):
     if tail:
         spans.append((start, start + len(tail)))
     return spans
+
+
+def plan_sentences(paragraphs):
+    """All sentences of all paragraphs, and for each its (paragraph index, start offset)."""
+    sentences, where = [], []
+    for index, text in enumerate(paragraphs):
+        for start, end in split_sentences(text):
+            sentences.append(text[start:end])
+            where.append((index, start))
+    return sentences, where

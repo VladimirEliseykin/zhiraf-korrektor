@@ -21,3 +21,15 @@ def models_dir():
     shipped = os.path.join(ROOT, "models")
     # a folder that merely exists is not enough: stale unrelated "models" folders must not shadow ours
     return shipped if os.path.isfile(os.path.join(shipped, "vocab.tsv")) else os.path.join(ENGINE_DIR, "models")
+
+
+def missing_models(folder):
+    """A message in Russian naming the first thing missing in the models folder, or None if it is complete."""
+    if not os.path.isdir(folder):
+        return "Не найдена папка с моделями: %s." % folder
+    for name, is_dir in (("vocab.tsv", False), ("sage", True), ("commas", True), ("forms", True)):
+        path = os.path.join(folder, name)
+        if not (os.path.isdir(path) if is_dir else os.path.isfile(path)):
+            what = "папка «%s»" % name if is_dir else "файл «%s»" % name
+            return "В папке с моделями (%s) не хватает: %s." % (folder, what)
+    return None
