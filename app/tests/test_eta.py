@@ -97,3 +97,34 @@ def test_skipped_work_counts_as_done():
     for _ in range(5):
         p.sentence_done("b")
     assert p.fraction() == 1.0
+
+
+def test_second_model_pass_doubles_the_stage_work():
+    p = Progress(10, ("commas", "sage"), {"commas": 1.0, "sage": 3.0}, Clock())
+    p.set_passes({"commas": 2, "sage": 1})
+    p.start()
+    for _ in range(10):  # the silent pass of the first model
+        p.sentence_done("commas")
+    assert p.fraction() == pytest.approx(10 / (20 + 30))
+    for _ in range(10):
+        p.sentence_done("commas")
+    assert p.fraction() == pytest.approx(20 / 50)
+
+
+def test_resume_skips_every_pass_of_a_finished_stage():
+    p = Progress(10, ("commas", "sage"), {"commas": 1.0, "sage": 3.0}, Clock())
+    p.set_passes({"commas": 2})
+    p.skip("commas", 10)
+    assert p.fraction() == pytest.approx(20 / 50)
+
+
+def test_estimate_counts_both_passes_of_a_stage():
+    clock = Clock()
+    p = Progress(10, ("commas",), {"commas": 0.1}, clock)
+    p.set_passes({"commas": 2})
+    p.start()
+    for _ in range(10):
+        clock.now += 1.0
+        p.sentence_done("commas")
+    # ten steps took 1 s each (9 s between the first and the last): ten steps are still to come
+    assert p.remaining_seconds() == pytest.approx(10.0)

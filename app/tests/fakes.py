@@ -5,18 +5,23 @@ from spellcheck.text import words_of
 
 
 class FakeTagger:
-    def __init__(self, comma_after=(), forms=None, delay=0.0):
+    def __init__(self, comma_after=(), forms=None, delay=0.0, add_p=0.95, log=None, name=None):
         self.comma_after = set(comma_after)
+        self.add_p = add_p
+        self.log = log  # shared list: ("predict", name) per call, to check the order of the passes
+        self.name = name
         self.forms = forms or {}
         self.delay = delay
 
     def predict(self, text):
         if self.delay:
             time.sleep(self.delay)
+        if self.log is not None:
+            self.log.append(("predict", self.name))
         out = []
         for m in words_of(text):
             word = m.group(0)
-            add = 0.95 if word in self.comma_after else 0.0
+            add = self.add_p if word in self.comma_after else 0.0
             label, p = self.forms.get(word, ("KEEP", 0.99))
             out.append({"comma": {"KEEP": 1.0 - add, "ADD": add, "DEL": 0.0}, "form": label, "form_p": p,
                         "form_keep_p": p if label == "KEEP" else 1.0 - p})
@@ -37,6 +42,13 @@ def make_factories():
     return {"commas": lambda: FakeTagger(comma_after={"Документ"}),
             "forms": lambda: FakeTagger(forms={"информации": ("case:ablt", 0.95)}),
             "sage": lambda: FakeSage({"инфомационной": "информационной"})}
+
+
+def make_ensemble_factories():
+    """Two comma models that agree, one forms model: the commas stage makes two passes."""
+    factories = make_factories()
+    factories["commas"] = [lambda: FakeTagger(comma_after={"Документ"}), lambda: FakeTagger(comma_after={"Документ"})]
+    return factories
 
 
 def make_slow_factories():

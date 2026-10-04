@@ -2,6 +2,8 @@
 
 Models are loaded one at a time and released before the next one (quality first on a 4 GB machine:
 two full-precision taggers plus SAGE do not fit side by side, int8 copies lose 8-18% of the finds).
+A tagger stage may have several models (folders commas, commas-2, ...): the first one predicts every
+sentence and is released, then the next, and the last one combines everything and yields the findings.
 
 Every finding: {"start", "end", "level", "rule", "fix", "message"} in chars of the original sentence.
 level "error" — sure, shown as an error with its fix; "check" — the reader should look at the place.
@@ -11,7 +13,7 @@ import os
 import time
 
 from . import grammar_rules, rules, sage
-from .stages import STAGE_COST, STAGES  # noqa: F401  (re-exported)
+from .stages import STAGE_COST, STAGES, model_folders  # noqa: F401  (re-exported)
 from .guards import BIBLIOGRAPHY, prepare, protected, quoted_spans
 from .tagger import EditTagger
 from .text import inflect, words_of
@@ -19,6 +21,19 @@ from .text import inflect, words_of
 # measured on the 3100-sentence gold of real documents (see train/rules_eval.py, train/coverage.py)
 SURE_COMMA, SURE_FORM, SURE_DEL = 0.9, 0.9, 0.9
 CHECK_COMMA, CHECK_FORM = 0.3, 0.3
+# Several models in one stage (engine/models/commas-2, commas-3): the taggers differ a lot from run to run, an
+# edit that independently trained models all predict is far more often right.
+# COMBINE: "min" = agreement (every model must be above the threshold), "mean" = average probability.
+# Commas: R3 (commas) + R6 (commas-2) + R7 (commas-3), "min", chosen on dev by train/ensemble_eval.py.
+# Right / false comma edits at "error" on the real gold (dev | test), clean official false alarms in brackets:
+#   R3 alone, ADD 0.9 DEL 0.9:      22 / 3 | 21 / 3  (1)
+#   the ensemble, ADD 0.7 DEL 0.8:  27 / 2 | 26 / 4  (1)     "check" band (ADD >= 0.3), right / false, official:
+#   R3 alone: 29 / 17 | 30 / 23 (8)   the ensemble: 28 / 6 | 28 / 16 (3)
+# Forms: no ensemble beat R5 alone on dev (best 14 / 1 against 13 / 1 and fewer), so forms stay single-model;
+# the *_ENS form thresholds only keep the stage consistent if a second forms model is ever added.
+ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
+SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.3
+SURE_FORM_ENS, CHECK_FORM_ENS = 0.9, 0.3
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
 
@@ -37,7 +52,7 @@ def breaks_grammar(text, start, end, new):
     return touching(text[:start] + new + text[end:], start + len(new)) > touching(text, end)
 
 
-def comma_findings(body, preds):
+def comma_findings(body, preds, sure_add=SURE_COMMA, sure_del=SURE_DEL, check_add=CHECK_COMMA):
     if BIBLIOGRAPHY.search(body):
         return []
     quotes = quoted_spans(body)
@@ -50,14 +65,14 @@ def comma_findings(body, preds):
         if body[m.end():m.end() + 1] == ",":
             # removing a comma only when the tagger is sure: unsure removals strip the closing commas
             # of long participial phrases (measured on clean official text)
-            if p["comma"]["DEL"] >= SURE_DEL:
+            if p["comma"]["DEL"] >= sure_del:
                 out.append({"start": m.end(), "end": m.end() + 1, "level": "error", "rule": "MODEL_COMMA_DEL",
                             "fix": "", "message": "Лишняя запятая", "p": round(p["comma"]["DEL"], 3)})
             continue
         if i == len(ms) - 1 or body[m.end():m.end() + 1] != " ":
             continue  # the last word, or another sign is already there
         prob = p["comma"]["ADD"]
-        level = "error" if prob >= SURE_COMMA else "check" if prob >= CHECK_COMMA else None
+        level = "error" if prob >= sure_add else "check" if prob >= check_add else None
         if level:
             out.append({"start": m.end(), "end": m.end(), "level": level, "rule": "MODEL_COMMA", "fix": ",",
                         "message": "Здесь нужна запятая" if level == "error" else "Возможно, здесь нужна запятая",
@@ -65,21 +80,21 @@ def comma_findings(body, preds):
     return out
 
 
-def form_findings(body, preds):
+def form_findings(body, preds, sure=SURE_FORM, check=CHECK_FORM):
     if BIBLIOGRAPHY.search(body):
         return []
     quotes = quoted_spans(body)
     out = []
     for i, (m, p) in enumerate(zip(words_of(body), preds)):
         word = m.group(0)
-        if p["form"] == "KEEP" or p["form_p"] < CHECK_FORM or protected(word):
+        if p["form"] == "KEEP" or p["form_p"] < check or protected(word):
             continue
         if any(a < m.start() < b for a, b in quotes) or (i > 0 and word[:1].isupper()):
             continue  # titles in quotes; a capital inside a sentence is a name or a title
         new = inflect(word, p["form"])
         if not new or new == word or breaks_grammar(body, m.start(), m.end(), new):
             continue
-        level = "error" if p["form_p"] >= SURE_FORM else "check"
+        level = "error" if p["form_p"] >= sure else "check"
         out.append({"start": m.start(), "end": m.end(), "level": level, "rule": "MODEL_FORM", "fix": new,
                     "message": "Неверное окончание" if level == "error" else "Проверьте окончание",
                     "p": round(p["form_p"], 3)})
@@ -106,6 +121,23 @@ def merge(found):
     return sorted(kept, key=lambda f: (f["start"], f["end"]))
 
 
+def combine_predictions(parts, how):
+    """One prediction list from the lists of several models (a word past a model's token limit is dropped).
+
+    Comma probabilities are combined per label; a word form counts only when every model chose the same
+    label, its probability is then the combined form_p (otherwise the word is KEEP).
+    """
+    pick = min if how == "min" else (lambda xs: sum(xs) / len(xs))
+    out = []
+    for words in zip(*parts):
+        comma = {k: pick([w["comma"][k] for w in words]) for k in words[0]["comma"]}
+        same = all(w["form"] == words[0]["form"] for w in words)
+        out.append({"comma": comma, "form": words[0]["form"] if same else "KEEP",
+                    "form_p": pick([w["form_p"] for w in words]) if same else 0.0,
+                    "form_keep_p": pick([w["form_keep_p"] for w in words])})
+    return out
+
+
 class Checker:
     def __init__(self, models_dir, threads=2, process=None, factories=None, strict=False):
         self.models_dir = models_dir
@@ -115,33 +147,82 @@ class Checker:
         self.process = process  # psutil.Process for memory statistics, optional
         self.stats = {}
         self.stopped = False
+        # a stage maps to one factory or a list of them (several models, the first is the main one)
         self.factories = factories or {
             "sage": lambda: sage.Sage(os.path.join(models_dir, "sage"), threads),
-            "commas": lambda: EditTagger(os.path.join(models_dir, "commas"), threads),
-            "forms": lambda: EditTagger(os.path.join(models_dir, "forms"), threads),
+            "commas": [self._tagger_factory(f) for f in model_folders(models_dir, "commas")],
+            "forms": [self._tagger_factory(f) for f in model_folders(models_dir, "forms")],
         }
+
+    def _tagger_factory(self, folder):
+        return lambda: EditTagger(folder, self.threads)
+
+    def passes(self, stage):
+        """How many model passes a stage makes over the sentences (1 for rules, SAGE and single-model stages)."""
+        made = self.factories.get(stage, ())
+        return len(made) if isinstance(made, (list, tuple)) and made else 1
 
     def _stage(self, name, started):
         rss = self.process.memory_info().rss // 2 ** 20 if self.process else None
         self.stats[name] = {"seconds": round(time.perf_counter() - started, 1), "rss_mb": rss}
 
-    def _stage_function(self, stage, sentences, context):
+    def _earlier_passes(self, stage, makers, prepared, first, should_stop, on_step):
+        """Predictions of every model but the last, for sentences first..end: [None] * first + per-sentence lists
+        per model. Each model is released before the next is loaded. None when should_stop ended the pass."""
+        parts = []
+        for make in makers[:-1]:
+            model = make()
+            found = [None] * first
+            for i in range(first, len(prepared)):
+                if should_stop is not None and should_stop():
+                    return None
+                found.append(model.predict(prepared[i][1]))
+                if on_step is not None:
+                    on_step(stage)
+            parts.append(found)
+            model = None  # release this model before the next one is loaded
+            gc.collect()
+        return parts
+
+    def _stage_function(self, stage, sentences, context, prepared=None, first=0, should_stop=None, on_step=None):
+        """check(index, body) -> findings; loads the stage model(s). None when should_stop ended an earlier pass."""
         if stage == "rules":
             ctx = rules.DocContext(context if context is not None else sentences, self.lexicon)
-            return lambda body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
-        model = self.factories[stage]()
+            return lambda i, body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
+        made = self.factories[stage]
+        makers = list(made) if isinstance(made, (list, tuple)) else [made]
+        parts = self._earlier_passes(stage, makers, prepared, first, should_stop, on_step) if len(makers) > 1 else []
+        if parts is None:
+            return None
+        model = makers[-1]()
         if stage == "sage":
-            return lambda body: sage.findings(body, model.correct(body), self.lexicon)
-        to_findings = comma_findings if stage == "commas" else form_findings
-        return lambda body: to_findings(body, model.predict(body))
+            return lambda i, body: sage.findings(body, model.correct(body), self.lexicon)
+        how = ENSEMBLE_COMBINE[stage]
+        if stage == "commas":
+            ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS) if parts else {}
+            to_findings = lambda body, p: comma_findings(body, p, **ens)  # noqa: E731
+        else:
+            ens = dict(sure=SURE_FORM_ENS, check=CHECK_FORM_ENS) if parts else {}
+            to_findings = lambda body, p: form_findings(body, p, **ens)  # noqa: E731
 
-    def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None):
+        def check(i, body):
+            preds = model.predict(body)
+            if parts:
+                preds = combine_predictions([part[i] for part in parts] + [preds], how)
+                for part in parts:
+                    part[i] = None  # a sentence is combined once: free its earlier predictions
+            return to_findings(body, preds)
+        return check
+
+    def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None, on_step=None):
         """Yield (stage, sentence index, findings) for every sentence and stage as soon as it is checked.
 
         Stages run one after another and load their model only for their own pass, so at most one
         model is in memory. Positions are chars of the original sentence (list marker included).
         start=(stage, index) resumes: earlier stages are skipped entirely (no model is loaded for them)
         and, in that stage, the sentences before index. self.stopped tells whether should_stop ended it.
+        A stage with several models first makes silent passes with all but the last model; on_step(stage)
+        is called after each sentence of such a pass (progress), the findings come in the last pass.
         """
         self.stopped = False
         prepared = [prepare(s) for s in sentences]
@@ -155,14 +236,17 @@ class Checker:
             if first >= len(prepared):
                 continue  # nothing to check here: do not load a model for it
             started = time.perf_counter()
-            check = self._stage_function(stage, sentences, context)
+            check = self._stage_function(stage, sentences, context, prepared, first, should_stop, on_step)
+            if check is None:
+                self.stopped = True
+                return
             for i in range(first, len(prepared)):
                 if should_stop is not None and should_stop():
                     self.stopped = True
                     return
                 marker, body = prepared[i]
                 found = []
-                for f in check(body):
+                for f in check(i, body):
                     level = visible_level(f["level"], self.strict)
                     if level is not None:
                         found.append(dict(f, level=level, start=f["start"] + len(marker), end=f["end"] + len(marker)))

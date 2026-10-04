@@ -45,7 +45,9 @@ def _run(models_dir, sentences, context, stages, strict, threads, factories_spec
         from spellcheck.checker import Checker
         factories = _resolve(factories_spec)() if factories_spec else None
         checker = Checker(models_dir, threads, strict=strict, factories=factories)
-        for stage, index, items in checker.stream(sentences, context, stages, should_stop=stop.is_set, start=start):
+        out.send(("plan", {stage: checker.passes(stage) for stage in stages}))  # model passes per stage (progress)
+        for stage, index, items in checker.stream(sentences, context, stages, should_stop=stop.is_set, start=start,
+                                                  on_step=lambda stage: out.send(("step", stage))):
             out.send(("findings", stage, index, items))
         out.send(("done", checker.stats, checker.stopped))
     except Exception as exc:
@@ -84,8 +86,10 @@ class CheckJob:
         self._writer.close()  # only the child holds the write end, so its death gives EOF
 
     def _note(self, message):
-        if message[0] == "findings":
+        if message[0] == "findings" or message[0] == "step":
             self.progress.sentence_done(message[1])
+        elif message[0] == "plan":
+            self.progress.set_passes(message[1])
         elif message[0] == "done":
             self.finished, self.stats, self.stopped = True, message[1], bool(message[2])
         elif message[0] == "error":

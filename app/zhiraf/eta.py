@@ -14,7 +14,8 @@ class Progress(object):
         self.cost = dict(cost)
         self.clock = clock
         self.done = {s: 0 for s in self.stages}
-        self.skipped = {s: 0 for s in self.stages}  # work a resumed check does not repeat
+        self.skipped = {s: 0 for s in self.stages}  # sentences a resumed check does not repeat
+        self.passes = {s: 1 for s in self.stages}  # model passes per stage; every pass over a sentence is a step
         self.started = None
         self.last_event = None
         self.stage_begin = {}
@@ -31,7 +32,20 @@ class Progress(object):
         if stage in self.skipped:
             self.skipped[stage] = max(0, min(self.n, count))
 
+    def set_passes(self, passes):
+        """A stage with several models makes that many passes over the sentences (cost is per pass)."""
+        for stage, count in passes.items():
+            if stage in self.passes:
+                self.passes[stage] = max(1, int(count))
+
+    def _size(self, stage):
+        return self.n * self.passes[stage]
+
+    def _skipped_steps(self, stage):
+        return self.skipped[stage] * self.passes[stage]
+
     def sentence_done(self, stage):
+        """One step of a stage is done: a sentence checked, or a sentence of a silent pass of an earlier model."""
         now = self.clock()
         if self.done[stage] == 0:
             self.stage_begin[stage] = self.last_event
@@ -44,13 +58,13 @@ class Progress(object):
         return sum(self.cost[s] * counts[s] for s in self.stages)
 
     def _total(self):
-        return self._units({s: self.n for s in self.stages})
+        return self._units({s: self._size(s) for s in self.stages})
 
     def fraction(self):
         total = self._total()
         if total <= 0:
             return 1.0
-        counts = {s: self.done[s] + self.skipped[s] for s in self.stages}
+        counts = {s: self.done[s] + self._skipped_steps(s) for s in self.stages}
         return min(1.0, self._units(counts) / total)
 
     def _get_rates(self):
@@ -88,7 +102,7 @@ class Progress(object):
 
         remaining = 0.0
         for stage in self.stages:
-            left = self.n - self.done[stage] - self.skipped[stage]
+            left = self._size(stage) - self.done[stage] - self._skipped_steps(stage)
             if left <= 0:
                 continue
             elif stage in rates:
