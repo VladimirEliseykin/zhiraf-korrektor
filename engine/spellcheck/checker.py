@@ -28,8 +28,13 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # Right / false comma edits at "error" on the real gold (dev | test), clean official false alarms in brackets:
 #   R3 alone, ADD 0.9 DEL 0.9:      22 / 3 | 21 / 3  (1)
 #   the ensemble, ADD 0.7 DEL 0.8:  27 / 2 | 26 / 4  (1)
-# "Check" band, ADD only, right / false (official): R3 alone at 0.3: 29 / 17 | 30 / 23 (8); the ensemble at
-# 0.3: 28 / 6 | 28 / 16 (3), at 0.2 (chosen on dev: R3's recall with half the false marks): 30 / 9 | 29 / 24 (3).
+# Hybrid: "error" from the agreement (min), "check" from a softer score of the same models, so that places the
+# models only half agree on are still highlighted: CHECK_COMBINE "min" | "mean" | "max" | "first" (the main model).
+# Check-only places (ADD, not an error), right / false on dev: first >= 0.3 9 / 15, mean >= 0.3 10 / 13 (best on dev
+# within the false budget, but over budget end to end), max >= 0.3 11 / 40, min >= 0.2 10 / 7 (the pure agreement band).
+# Measured end to end, "mean" >= 0.3 gave highlighted 18% / false check 2.6 per 100 (budget 2.2): not worth it, so
+# the shipped setting is the pure agreement band (min >= 0.2: 17% / 2.1); the hybrid stays available for retuning.
+CHECK_COMBINE = {}
 # Forms: no ensemble beat R5 alone on dev (best 14 / 1 against 13 / 1 and fewer), so forms stay single-model;
 # the *_ENS form thresholds only keep the stage consistent if a second forms model is ever added.
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
@@ -73,11 +78,12 @@ def comma_findings(body, preds, sure_add=SURE_COMMA, sure_del=SURE_DEL, check_ad
         if i == len(ms) - 1 or body[m.end():m.end() + 1] != " ":
             continue  # the last word, or another sign is already there
         prob = p["comma"]["ADD"]
-        level = "error" if prob >= sure_add else "check" if prob >= check_add else None
+        soft = p["comma"].get("CHECK", prob)  # an ensemble has its own score for the "check" level
+        level = "error" if prob >= sure_add else "check" if soft >= check_add else None
         if level:
             out.append({"start": m.end(), "end": m.end(), "level": level, "rule": "MODEL_COMMA", "fix": ",",
                         "message": "Здесь нужна запятая" if level == "error" else "Возможно, здесь нужна запятая",
-                        "p": round(prob, 3)})
+                        "p": round(prob if level == "error" else soft, 3)})
     return out
 
 
@@ -122,16 +128,21 @@ def merge(found):
     return sorted(kept, key=lambda f: (f["start"], f["end"]))
 
 
-def combine_predictions(parts, how):
+def combine_predictions(parts, how, check_how=None):
     """One prediction list from the lists of several models (a word past a model's token limit is dropped).
 
     Comma probabilities are combined per label; a word form counts only when every model chose the same
     label, its probability is then the combined form_p (otherwise the word is KEEP).
+    check_how: the comma "CHECK" score for the "check" level, combined differently from the sure one.
     """
     pick = min if how == "min" else (lambda xs: sum(xs) / len(xs))
     out = []
     for words in zip(*parts):
         comma = {k: pick([w["comma"][k] for w in words]) for k in words[0]["comma"]}
+        if check_how is not None:
+            adds = [w["comma"]["ADD"] for w in words]
+            comma["CHECK"] = {"min": min, "max": max, "first": lambda a: a[0],
+                              "mean": lambda a: sum(a) / len(a)}[check_how](adds)
         same = all(w["form"] == words[0]["form"] for w in words)
         out.append({"comma": comma, "form": words[0]["form"] if same else "KEEP",
                     "form_p": pick([w["form_p"] for w in words]) if same else 0.0,
@@ -209,7 +220,7 @@ class Checker:
         def check(i, body):
             preds = model.predict(body)
             if parts:
-                preds = combine_predictions([part[i] for part in parts] + [preds], how)
+                preds = combine_predictions([part[i] for part in parts] + [preds], how, CHECK_COMBINE.get(stage))
                 for part in parts:
                     part[i] = None  # a sentence is combined once: free its earlier predictions
             return to_findings(body, preds)

@@ -15,6 +15,12 @@ SENTENCES = ["Документ определяющий порядок утве�
              "Документ определяющий порядок отменён."]
 
 
+@pytest.fixture(autouse=True)
+def pure_agreement(monkeypatch):
+    """The combiner tests below look at min / mean alone: no separate check score unless a test asks for it."""
+    monkeypatch.setattr(checker_module, "CHECK_COMBINE", {})
+
+
 def commas(c, stages=("commas",), **kwargs):
     return {i: [(f["rule"], f["level"]) for f in items] for stage, i, items in c.stream(SENTENCES, stages=stages, **kwargs)}
 
@@ -182,3 +188,17 @@ def test_job_progress_counts_both_passes(models_dir):
     assert job.progress.done["commas"] == 2 * len(SENTENCES)
     assert job.progress.fraction() == 1.0
     assert [m[2] for m in messages if m[0] == "findings" and m[1] == "commas"] == list(range(len(SENTENCES)))
+
+
+
+def test_hybrid_check_level_uses_the_softer_score(models_dir, monkeypatch):
+    # the second model sees nothing: min is 0 (no finding), the mean 0.475 reaches the check band
+    assert commas(two_models(models_dir, after_b=()))[0] == []
+    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "mean")
+    assert commas(two_models(models_dir, after_b=()))[0] == [("MODEL_COMMA", "check")]
+    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "first")  # the main model alone: 0.95 ...
+    assert commas(two_models(models_dir, after_b=()))[0] == [("MODEL_COMMA", "check")]  # ... but never an error
+    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "max")
+    assert commas(two_models(models_dir, p_a=0.1, p_b=0.4, after_b=("Документ",)))[0] == [("MODEL_COMMA", "check")]
+    # an agreed error stays an error whatever the check score is
+    assert commas(two_models(models_dir))[0] == [("MODEL_COMMA", "error")]
