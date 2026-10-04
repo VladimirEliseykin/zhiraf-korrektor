@@ -117,7 +117,7 @@ NO_OFFICE_NOTICE = ("На компьютере нет Word и LibreOffice: оф�
                     "исправленная версия будет сохранена как .docx.")
 WD_FORMAT_DOC, WD_FORMAT_DOCX = 0, 12   # wdFormatDocument, wdFormatXMLDocument (also valid in Word 2007)
 MSO_AUTOMATION_SECURITY_FORCE_DISABLE = 3
-DUMMY_PASSWORD = "\u0000zhiraf"         # makes Word fail on a protected file instead of asking for a password
+DUMMY_PASSWORD = "zhiraf-dummy-password"  # makes Word fail on a protected file instead of asking for a password
 
 
 class ConversionError(Exception):
