@@ -215,6 +215,9 @@ def preds_for(body, labels):
 ALL = {label: (0.9, 0.3) for label in cr.SPELL_LABELS if label != "KEEP"}  # every label on, to test the mechanics
 
 
+LOWER_ON = dict(SPELL_THRESHOLDS, LOWER=(None, 0.97))  # the measured setting, off in the product
+
+
 def one(body, labels, thresholds=SPELL_THRESHOLDS):
     found = spell_findings(body, preds_for(body, labels), thresholds)
     return [(body[f["start"]:f["end"]], f["fix"], f["level"], f["message"]) for f in found]
@@ -241,7 +244,7 @@ def test_split_finding_puts_a_space_after_ne():
 
 
 def test_case_findings():
-    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.98)}) == [
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.98)}, LOWER_ON) == [
         ("Газета", "газета", "check", "Возможно, слово пишется с маленькой буквы")]
     assert one("Налоговая Газета направила письмо.", {0: ("LOWER", 0.98)}) == []  # sentence start
     assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.95)}, ALL) == [
@@ -410,7 +413,7 @@ def test_lower_is_sure_or_nothing():
     body = "Налоговая Газета направила письмо."
     assert one(body, {1: ("LOWER", 0.96)}) == []
     assert one(body, {1: ("LOWER", 0.5)}) == []
-    assert one(body, {1: ("LOWER", 0.98)}) == [("Газета", "газета", "check", "Возможно, слово пишется с маленькой буквы")]
+    assert one(body, {1: ("LOWER", 0.98)}, LOWER_ON) == [("Газета", "газета", "check", "Возможно, слово пишется с маленькой буквы")]
 
 
 def test_join_of_ne_needs_a_known_joined_word():
@@ -470,7 +473,7 @@ def test_findings_carry_their_label_and_thresholds_can_be_swept():
 
 def test_shipped_spell_thresholds_are_pinned():
     # measured on the real gold with train/spell_eval.py (see the comment at SPELL_THRESHOLDS)
-    assert SPELL_THRESHOLDS == {"JOIN": (0.9, 0.3), "HYPHEN": (0.97, 0.7), "LOWER": (None, 0.97), "SPLIT": (0.9, 0.5)}
+    assert SPELL_THRESHOLDS == {"JOIN": (0.9, 0.3), "HYPHEN": (0.97, 0.7), "LOWER": (None, 1.01), "SPLIT": (0.9, 0.5)}
     assert "UPPER" not in SPELL_THRESHOLDS
 
 
@@ -479,8 +482,9 @@ def test_shipped_thresholds_per_label():
     assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.29)}) == []
     assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.96)})[0][2] == "check"
     assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.69)}) == []
-    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.96)}) == []
-    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.999)})[0][2] == "check"  # never an error
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.96)}, LOWER_ON) == []
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.999)}) == []  # disabled end to end
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.999)}, LOWER_ON)[0][2] == "check"  # never an error
     assert one("Мы решили неделать этого.", {2: ("SPLIT", 0.89)})[0][2] == "check"
     assert one("Мы решили неделать этого.", {2: ("SPLIT", 0.49)}) == []
     assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.999)}) == []  # disabled

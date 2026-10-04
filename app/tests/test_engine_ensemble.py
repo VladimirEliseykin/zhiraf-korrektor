@@ -332,3 +332,10 @@ def test_earlier_predictions_are_stored_compactly(models_dir):
     assert len(parts) == 2
     numbers, forms = parts[0][0]
     assert isinstance(numbers, array) and len(forms) == len(numbers) // 5  # five numbers and a label per word
+
+
+def test_forms_ensemble_thresholds_are_pinned():
+    # R5 + base-cased-forms, min: measured on dev by train/ensemble_eval.py (see the comment in checker.py)
+    assert checker_module.ENSEMBLE_SIZE == {"commas": 3, "forms": 2}
+    assert (checker_module.SURE_FORM_ENS, checker_module.CHECK_FORM_ENS) == (0.8, 0.3)
+    assert checker_module.ENSEMBLE_COMBINE["forms"] == "min"

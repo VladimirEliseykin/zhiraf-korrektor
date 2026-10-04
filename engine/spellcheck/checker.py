@@ -41,26 +41,28 @@ CHECK_COMBINE = {}
 #   R5 alone 0.9: 14 / 1 (1);  R5 + base-cased-forms min 0.8: 16 / 2 (1), min 0.9: 12 / 1 (0);
 #   R5 + base-cased-spell (its forms head) min 0.9: 9 / 1 (0), 0.8: 14 / 3 (2); R5 + both min 0.8: 14 / 2 (0).
 #   The spell model alone is worse than R5 (0.95: 5 / 4), so it is no member of the forms ensemble: it has its own
-#   "spell" stage. R5 + base-cased-forms (min 0.8) would add about 2 right finds on dev (pooled gold 38 / 7 against
-#   33 / 10) for one more model pass and ~0.7 GB; it is not shipped (disk budget), forms stay single-model.
+#   R5 + base-cased-forms (forms-2), min, error 0.8 / check 0.3 is shipped: dev 16 / 2 (1); check band (0.3 to 0.8) on
+#   dev +2 right / +4 false, official +3 false (same at 0.4, 0.5; 0.6: +1 / +3, 0.7: +0 / +2). TEST (read once):
+#   error 0.8 22 / 5 (R5 alone 0.9: 19 / 9), with the band 29 / 9. Pooled gold 38 / 7 against 33 / 10.
 # The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
 # missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
 # those is at least as precise as one model alone, and nothing about two models was measured.
-# Forms have no measured ensemble (a stage with several form models uses the single-model thresholds).
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
-ENSEMBLE_SIZE = {"commas": 3}
+ENSEMBLE_SIZE = {"commas": 3, "forms": 2}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
+SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.3  # forms = R5 + base-cased-forms (forms-2), "min"; see the numbers above
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
 #   JOIN   0.9: 10 / 1, no official false alarm (0.3 is the check band: still nothing sure)
 #   HYPHEN 0.97: 3 / 0; 0.7: 5 / 1
-#   LOWER  0.97: 2 / 4 and false alarms on clean official text: a hint only, never an error
+#   LOWER  0.97: 2 / 4 on gold; end to end 2 highlights vs 4 false checks (check false 2.1 -> 2.3 per 100, budget 2.2):
+#          disabled by a threshold above 1; the code and the labels stay (retrain or a better guard may bring it back)
 #   UPPER  never right on gold, up to 1.09 official false alarms per 100: disabled
 #   SPLIT  never fires on gold (no data either way): conservative, like JOIN
 SPELL_THRESHOLDS = {
     "JOIN": (0.9, 0.3),
     "HYPHEN": (0.97, 0.7),
-    "LOWER": (None, 0.97),
+    "LOWER": (None, 1.01),  # off: unreachable (probabilities are <= 1), see the measurements above
     "SPLIT": (0.9, 0.5),
 }
 LEVEL_RANK = {"error": 2, "check": 1}
@@ -383,7 +385,8 @@ class Checker:
             ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS) if measured else {}
             to_findings = lambda body, p: comma_findings(body, p, **ens)  # noqa: E731
         else:
-            to_findings = form_findings
+            ens = dict(sure=SURE_FORM_ENS, check=CHECK_FORM_ENS) if measured else {}
+            to_findings = lambda body, p: form_findings(body, p, **ens)  # noqa: E731
 
         def check(i, body):
             preds = model.predict(body)
