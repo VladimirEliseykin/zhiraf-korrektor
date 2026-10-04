@@ -19,7 +19,8 @@ def python_files():
 
 
 def imported_names(path):
-    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -47,6 +48,7 @@ def test_forbidden_import_is_caught(tmp_path):
 
 
 def test_sources_run_on_python37():
-    result = subprocess.run([sys.executable, "-m", "vermin", "--target=3.7-", "--violations", "--no-tips"]
-                            + SOURCE_DIRS, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    cmd = [sys.executable, "-c", "import sys; from vermin.main import main; sys.exit(main())",
+           "--target=3.7-", "--violations", "--no-tips"] + SOURCE_DIRS
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
     assert result.returncode == 0, result.stdout
