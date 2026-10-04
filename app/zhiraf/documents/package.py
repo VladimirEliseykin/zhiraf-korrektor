@@ -17,7 +17,14 @@ def read_package(path):
 def write_package(dst, infos, blobs):
     """Same entries in the same order with the same compression (ODF needs 'mimetype' first, stored)."""
     tmp = dst + ".part"
-    with zipfile.ZipFile(tmp, "w") as z:
-        for info in infos:
-            z.writestr(info, blobs[info.filename])
-    os.replace(tmp, dst)
+    try:
+        with zipfile.ZipFile(tmp, "w") as z:
+            for info in infos:
+                z.writestr(info, blobs[info.filename])
+        os.replace(tmp, dst)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise

@@ -176,40 +176,21 @@ def load_package(path):
             document = z.read(DOCUMENT_XML)
             styles = z.read(STYLES_XML) if STYLES_XML in z.namelist() else None
 
-        # Check for DOCTYPE which enables entity attacks (byte check first, fast path)
-        if b"<!DOCTYPE" in document:
-            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
-
-        # Parse document
-        root = etree.fromstring(document, PARSER)
-
-        # Check for DOCTYPE in parsed tree (catches UTF-16 and other encodings)
-        # docinfo.doctype is empty string for normal docs, non-empty for docs with DOCTYPE
-        if root.getroottree().docinfo.doctype:
-            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
+        # Parse document with safety checks
+        root = _parse_xml_safe(document, path)
 
         # Check that w:body exists
         body = root.find(q("body"))
         if body is None:
             raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
 
-        # Parse and extract style names
-        names = {}
-        if styles:
-            if b"<!DOCTYPE" in styles:
-                raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
-            styles_root = etree.fromstring(styles, PARSER)
-            if styles_root.getroottree().docinfo.doctype:
-                raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
-            for style in styles_root.iter(q("style")):
-                name = style.find(q("name"))
-                if style.get(q("styleId")) and name is not None:
-                    names[style.get(q("styleId"))] = name.get(q("val"), "")
+        # Extract style names from styles.xml using the same safety checks
+        names = _extract_style_names(styles, path)
 
         return root, names
     except DocumentError:
         raise
-    except (zipfile.BadZipFile, KeyError, etree.XMLSyntaxError, OSError, ValueError,
+    except (zipfile.BadZipFile, KeyError, OSError, ValueError,
             RuntimeError, NotImplementedError, EOFError, RecursionError):
         raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
 
@@ -296,11 +277,53 @@ def _parse_xml_safe(xml_bytes, filename):
         raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(filename))
 
 
+def _extract_style_names(styles_xml, filename):
+    """Parse styles.xml and extract style names; uses _parse_xml_safe."""
+    if not styles_xml:
+        return {}
+    styles_root = _parse_xml_safe(styles_xml, filename)
+    names = {}
+    for style in styles_root.iter(q("style")):
+        name = style.find(q("name"))
+        if style.get(q("styleId")) and name is not None:
+            names[style.get(q("styleId"))] = name.get(q("val"), "")
+    return names
+
+
 def save_docx(doc, replacements, dst):
     """Copy the original package; only characters of the fixes change in word/document.xml."""
-    infos, blobs = read_package(doc.path)
-    root = _parse_xml_safe(blobs[DOCUMENT_XML], doc.path)
-    paragraphs = [p for p, _ in iter_paragraphs(root.find(q("body")))]
+    try:
+        infos, blobs = read_package(doc.path)
+    except DocumentError:
+        raise
+    except KeyError:
+        raise DocumentError("Не удалось сохранить «%s»: файл повреждён или защищён паролем." % os.path.basename(doc.path))
+
+    try:
+        root = _parse_xml_safe(blobs[DOCUMENT_XML], doc.path)
+    except KeyError:
+        raise DocumentError("Не удалось сохранить «%s»: файл повреждён или защищён паролем." % os.path.basename(doc.path))
+
+    body = root.find(q("body"))
+    if body is None:
+        raise DocumentError("Не удалось сохранить «%s»: файл повреждён или защищён паролем." % os.path.basename(doc.path))
+
+    paragraphs = [p for p, _ in iter_paragraphs(body)]
+
+    # Validate that document hasn't changed: check paragraph count and slot text
+    if len(paragraphs) != len(doc.paragraphs):
+        raise DocumentError("Документ «%s» изменился после открытия. Откройте его заново и проверьте ещё раз." % os.path.basename(doc.path))
+
+    # Check for replacements to paragraphs that don't exist, and validate slot text matches
+    for index, reps in group_by_paragraph(replacements).items():
+        if index >= len(paragraphs):
+            raise DocumentError("Документ «%s» изменился после открытия. Откройте его заново и проверьте ещё раз." % os.path.basename(doc.path))
+
+        slots, _ = paragraph_slots(paragraphs[index])
+        slot_text = "".join(slot.text for slot in slots)
+        if slot_text != doc.paragraphs[index].text:
+            raise DocumentError("Документ «%s» изменился после открытия. Откройте его заново и проверьте ещё раз." % os.path.basename(doc.path))
+
     applied, skipped = 0, []
     for index, reps in group_by_paragraph(replacements).items():
         slots, _ = paragraph_slots(paragraphs[index])

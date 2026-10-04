@@ -85,3 +85,67 @@ def test_save_document_names_the_copy(tmp_path):
     src = make_docx(tmp_path / "Приказ.docx", P(R("Так же")))
     report = opener.save_document(opener.open_document(src), [Replacement(0, 0, 6, "Также")])
     assert report.path.endswith("Приказ (исправлено).docx")
+
+
+def test_document_changed_after_read_raises_error_and_creates_no_output(tmp_path):
+    from zhiraf.documents.model import DocumentError
+    src = make_docx(tmp_path / "src.docx", P(R("Исходный текст")))
+    doc = read_docx(src)
+    # Rewrite the source file with different content
+    make_docx(tmp_path / "src.docx", P(R("Изменённый текст")))
+    # Try to save with the old Document (which has stale paragraph text)
+    dst = str(tmp_path / "out.docx")
+    try:
+        save_docx(doc, [Replacement(0, 0, 7, "Новый")], dst)
+        assert False, "Should have raised DocumentError"
+    except DocumentError as e:
+        assert "изменился" in str(e).lower()
+    # Verify no output file was created
+    assert not (tmp_path / "out.docx").exists()
+
+
+def test_replacement_out_of_bounds_paragraph_index_raises_error(tmp_path):
+    from zhiraf.documents.model import DocumentError
+    src = make_docx(tmp_path / "src.docx", P(R("Текст")))
+    doc = read_docx(src)
+    dst = str(tmp_path / "out.docx")
+    try:
+        save_docx(doc, [Replacement(99, 0, 2, "XX")], dst)
+        assert False, "Should have raised DocumentError"
+    except DocumentError as e:
+        assert "изменился" in str(e).lower()
+    # Verify no output file was created
+    assert not (tmp_path / "out.docx").exists()
+
+
+def test_write_package_cleanup_on_write_failure(tmp_path):
+    """Test that write_package cleans up .part file if writing fails."""
+    import zipfile
+    from zhiraf.documents import package
+    from zipfile import ZipInfo
+
+    # Create minimal zip info with actual content so the loop executes
+    info = ZipInfo("test.txt")
+    infos = [info]
+    blobs = {"test.txt": b"test content"}
+
+    # Monkeypatch zipfile.ZipFile.writestr to simulate failure
+    original_writestr = zipfile.ZipFile.writestr
+
+    def failing_writestr(self, *args, **kwargs):
+        raise IOError("Simulated write failure")
+
+    dst = str(tmp_path / "test.docx")
+
+    zipfile.ZipFile.writestr = failing_writestr
+    try:
+        try:
+            package.write_package(dst, infos, blobs)
+            assert False, "Should have raised IOError"
+        except IOError as e:
+            if "Simulated" not in str(e):
+                raise
+        # Verify no .part file was left behind
+        assert not (tmp_path / "test.docx.part").exists()
+    finally:
+        zipfile.ZipFile.writestr = original_writestr
