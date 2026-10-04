@@ -38,3 +38,46 @@ def make_docx(path, *paragraphs, styles_xml=None):
 def zip_entries(path):
     with zipfile.ZipFile(str(path)) as z:
         return {i.filename: z.read(i.filename) for i in z.infolist()}
+
+
+ODF = {
+    "office": "urn:oasis:names:tc:opendocument:xmlns:office:1.0",
+    "text": "urn:oasis:names:tc:opendocument:xmlns:text:1.0",
+    "table": "urn:oasis:names:tc:opendocument:xmlns:table:1.0",
+    "style": "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
+    "fo": "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0",
+    "draw": "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0",
+}
+ODF_DECL = " ".join('xmlns:%s="%s"' % kv for kv in ODF.items())
+BOLD_STYLE = ('<style:style style:name="T1" style:family="text">'
+              '<style:text-properties fo:font-weight="bold"/></style:style>')
+
+
+def OP(*parts, style=None):
+    attr = ' text:style-name="%s"' % style if style else ""
+    return "<text:p%s>%s</text:p>" % (attr, "".join(parts))
+
+
+def OH(text, level):
+    return '<text:h text:outline-level="%d">%s</text:h>' % (level, escape(text))
+
+
+def OSPAN(text, style):
+    return '<text:span text:style-name="%s">%s</text:span>' % (style, escape(text))
+
+
+def make_odt(path, body_xml, auto_styles=BOLD_STYLE):
+    content = ('<?xml version="1.0" encoding="UTF-8"?><office:document-content %s office:version="1.2">'
+               '<office:automatic-styles>%s</office:automatic-styles><office:body><office:text>%s'
+               '</office:text></office:body></office:document-content>' % (ODF_DECL, auto_styles, body_xml))
+    manifest = ('<?xml version="1.0" encoding="UTF-8"?><manifest:manifest '
+                'xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">'
+                '<manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>'
+                '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+                '</manifest:manifest>')
+    with zipfile.ZipFile(str(path), "w") as z:
+        z.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+        z.writestr("META-INF/manifest.xml", manifest, zipfile.ZIP_DEFLATED)
+        z.writestr("content.xml", content, zipfile.ZIP_DEFLATED)
+        z.writestr("Pictures/image1.png", PNG, zipfile.ZIP_DEFLATED)
+    return str(path)
