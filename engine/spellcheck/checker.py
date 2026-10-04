@@ -16,6 +16,7 @@ import time
 from . import grammar_rules, rules, sage
 from .stages import STAGE_COST, STAGES, model_folders  # noqa: F401  (re-exported)
 from .guards import BIBLIOGRAPHY, prepare, protected, quoted_spans
+from .morph import morph
 from .tagger import EditTagger
 from .text import inflect, words_of
 
@@ -45,6 +46,7 @@ CHECK_COMBINE = {}
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
+SURE_SPELL, CHECK_SPELL = 0.9, 0.3  # spelling head (joined/split words, hyphens, capitals); not yet measured on gold
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
 
@@ -110,6 +112,92 @@ def form_findings(body, preds, sure=SURE_FORM, check=CHECK_FORM):
         out.append({"start": m.start(), "end": m.end(), "level": level, "rule": "MODEL_FORM", "fix": new,
                     "message": "Неверное окончание" if level == "error" else "Проверьте окончание",
                     "p": round(p["form_p"], 3)})
+    return out
+
+
+SPELL_MESSAGES = {
+    "JOIN": ("Слово пишется слитно", "Возможно, слово пишется слитно"),
+    "HYPHEN": ("Нужен дефис", "Возможно, здесь нужен дефис"),
+    "SPLIT": ("Частица «не» пишется раздельно", "Возможно, «не» пишется раздельно"),
+    "LOWER": ("Слово пишется с маленькой буквы", "Возможно, слово пишется с маленькой буквы"),
+    "UPPER": ("Слово пишется с большой буквы", "Возможно, слово пишется с большой буквы"),
+}
+NOT_COMMON_NOUN = ("Name", "Surn", "Patr", "Geox", "Orgn", "Abbr", "Trad")
+NAME_LIKE = ("Name", "Surn", "Patr", "Geox")
+# common nouns that official language writes with a capital as part of a title ("Российская Федерация"):
+# the model must not lower them even when it is unsure about the context
+CAPITAL_LEMMAS = {"федерация", "республика", "конституция", "правительство", "президент", "дума", "собрание",
+                  "совет", "союз", "государство", "федерация", "кодекс", "палата", "суд"}
+
+
+def spell_fix(body, ms, i, label, quotes):
+    """(start, end, fix) for a spelling label of word i, or None when the label cannot be applied safely."""
+    m = ms[i]
+    word = m.group(0)
+    if label in ("JOIN", "HYPHEN"):
+        if i + 1 >= len(ms) or body[m.end():ms[i + 1].start()] != " ":
+            return None
+        nxt = ms[i + 1]
+        second = nxt.group(0)
+        if protected(second) or not second.isalpha() or not second[:1].islower() or any(a < nxt.start() < b for a, b in quotes):
+            return None
+        return m.start(), nxt.end(), word + ("" if label == "JOIN" else "-") + second
+    if label == "SPLIT":
+        rest = word[2:]
+        if word[:2].lower() != "не" or len(rest) < 3 or not rest.isalpha() or morph.word_is_known(word.lower()):
+            return None
+        parse = morph.parse(rest.lower())[0]
+        if parse.score < 0.5 or parse.tag.POS not in ("VERB", "INFN", "GRND"):
+            return None
+        return m.start(), m.end(), word[:2] + " " + rest
+    if label == "LOWER":
+        # only in the middle of a sentence ("... , Служба"), and never for names the dictionary knows
+        before = body[max(0, m.start() - 2):m.start()]
+        if i == 0 or len(before) < 2 or before[1] != " " or not (before[0].isalpha() or before[0] == ","):
+            return None
+        if not word[:1].isupper() or not word[1:].islower() or len(word) < 4:
+            return None
+        parse = morph.parse(word.lower())[0]
+        if parse.tag.POS != "NOUN" or any(g in parse.tag for g in NOT_COMMON_NOUN) or parse.normal_form in CAPITAL_LEMMAS:
+            return None
+        return m.start(), m.end(), word[:1].lower() + word[1:]
+    if label == "UPPER":
+        if not word[:1].islower() or not word.isalpha() or len(word) < 3:
+            return None
+        if i > 0 and not any(g in morph.parse(word)[0].tag for g in NAME_LIKE):
+            return None  # inside a sentence only names are capitalised on the model's say-so
+        return m.start(), m.end(), word[:1].upper() + word[1:]
+    return None
+
+
+def spell_findings(body, preds):
+    """Joined/split/hyphenated words and wrong capitals from the spelling head; nothing without the head.
+
+    The fix is built from the label: JOIN/HYPHEN replace the two words by their joined or hyphenated
+    form, SPLIT puts a space after "не", LOWER/UPPER change the first letter."""
+    if not preds or "spell" not in preds[0] or BIBLIOGRAPHY.search(body):
+        return []
+    quotes = quoted_spans(body)
+    ms = words_of(body)
+    out = []
+    for i, (m, p) in enumerate(zip(ms, preds)):
+        word = m.group(0)
+        if any(a < m.start() < b for a, b in quotes) or protected(word):
+            continue
+        label, prob = max(((k, v) for k, v in p["spell"].items() if k != "KEEP"), key=lambda kv: kv[1])
+        if prob < CHECK_SPELL:
+            continue
+        fix = spell_fix(body, ms, i, label, quotes)
+        if fix is None:
+            continue
+        level = "error" if prob >= SURE_SPELL else "check"
+        if label == "UPPER" and i == 0:
+            # a list item continues the sentence in lowercase on purpose: only a whole sentence is sure
+            if not body.rstrip().endswith((".", "!", "?")):
+                continue
+            level = "check"
+        out.append({"start": fix[0], "end": fix[1], "level": level, "rule": "MODEL_SPELL", "fix": fix[2],
+                    "message": SPELL_MESSAGES[label][level != "error"], "p": round(prob, 3)})
     return out
 
 
@@ -260,11 +348,14 @@ class Checker:
 
         def check(i, body):
             preds = model.predict(body)
+            # the spelling head rides on whichever model has it (the last one of the stage); for the others this
+            # adds nothing, and the ensemble combination below keeps comma/form probabilities only
+            spelled = spell_findings(body, preds)
             if parts:
                 preds = combine_predictions([part[i] for part in parts] + [compact(preds)], how, check_how)
                 for part in parts:
                     part[i] = None  # a sentence is combined once: free its earlier predictions
-            return to_findings(body, preds)
+            return to_findings(body, preds) + spelled
         return check
 
     def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None, on_step=None):

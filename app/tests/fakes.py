@@ -5,7 +5,8 @@ from spellcheck.text import words_of
 
 
 class FakeTagger:
-    def __init__(self, comma_after=(), forms=None, delay=0.0, add_p=0.95, log=None, name=None, del_after=(), del_p=0.95, fail_after=None):
+    def __init__(self, comma_after=(), forms=None, delay=0.0, add_p=0.95, log=None, name=None, del_after=(), del_p=0.95,
+                 fail_after=None, spell=None):
         self.comma_after = set(comma_after)
         self.add_p = add_p
         self.log = log  # shared list: ("predict", name) per call, to check the order of the passes
@@ -15,6 +16,7 @@ class FakeTagger:
         self.fail_after = fail_after  # raise on this call number (1-based): a model that dies mid-pass
         self.calls = 0
         self.forms = forms or {}
+        self.spell = spell  # None: a model without the spelling head; else {word: (label, p)}
         self.delay = delay
 
     def predict(self, text):
@@ -33,6 +35,12 @@ class FakeTagger:
             dele = self.del_p if word in self.del_after else 0.0
             out.append({"comma": {"KEEP": 1.0 - add - dele, "ADD": add, "DEL": dele}, "form": label, "form_p": p,
                         "form_keep_p": p if label == "KEEP" else 1.0 - p})
+            if self.spell is not None:
+                name, q = self.spell.get(word, ("KEEP", 1.0))
+                probs = {k: 0.0 for k in ("KEEP", "JOIN", "HYPHEN", "SPLIT", "LOWER", "UPPER")}
+                probs[name] = q
+                probs["KEEP"] += 1.0 - q if name != "KEEP" else 0.0
+                out[-1]["spell"] = probs
         return out
 
 

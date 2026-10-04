@@ -1,0 +1,348 @@
+"""Spelling labels: the corruptions (train/corrupt.py), the checker findings, the product tagger decoding.
+
+All sentences are invented; no gold or corpus text is used here."""
+import os
+import random
+import sys
+
+import numpy as np
+import pytest
+
+import zhiraf
+from fakes import FakeTagger
+from spellcheck import tagger as product_tagger
+from spellcheck.checker import CHECK_SPELL, SURE_SPELL, Checker, merge, spell_findings
+from spellcheck.text import words_of
+
+TRAIN = os.path.join(zhiraf.ROOT, "train")
+sys.path.insert(0, TRAIN)
+import corrupt as cr  # noqa: E402
+
+KEEP = cr.SPELL_KEEP
+CLEAN = {"p_clean": 1.0}  # no comma/form errors: only the spelling pass edits the sentence
+
+
+def only(kind, p=1.0):
+    return {"p_spell": p, "rates": {kind: 1e9}}
+
+
+def make(text, kind, seed=0):
+    return cr.corrupt_spell(text, random.Random(seed), **only(kind), **CLEAN)
+
+
+def labelled(c, spell):
+    return [(m.group(0), l) for m, l in zip(words_of(c), spell) if l != KEEP]
+
+
+# ---- corruptions ----------------------------------------------------------------------------------
+
+SENTENCES = [
+    "Компания получила сверхдоходности от продажи акций, поэтому руководство пересмотрело планы.",
+    "Отчеты по незакрытых договорам были сданы вовремя, зато все остальные остались до конца собрания.",
+    "Из-за задержки какой-то документ не был принят, хотя директор Иван Петров подписал приказ.",
+    "Налоговая служба направила письмо директору департамента о городе Москве.",
+    "Мы решили не делать лишней работы сегодня и не отвечать на письмо.",
+    "Короткое предложение.",
+]
+
+
+def test_flags_off_reproduce_corrupt_exactly():
+    for seed in range(40):
+        for text in SENTENCES:
+            a, b = random.Random(seed), random.Random(seed)
+            old = cr.corrupt(text, a)
+            new = cr.corrupt_spell(text, b)
+            assert new[:3] == old and set(new[3]) <= {KEEP} and len(new[3]) == len(old[1])
+            assert a.getstate() == b.getstate()  # the generator is not touched: later sentences are the same
+
+
+def test_restore_without_spell_labels_is_unchanged():
+    text = "Мы пришли рано мы ушли"
+    comma = [cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_ADD, cr.COMMA_KEEP, cr.COMMA_KEEP]
+    form = [cr.FORM_KEEP] * 5
+    assert cr.restore(text, comma, form) == cr.restore(text, comma, form, [KEEP] * 5) == "Мы пришли рано, мы ушли"
+
+
+@pytest.mark.parametrize("kind", ["join", "hyphen", "split", "lower", "upper"])
+def test_labels_align_with_words_and_restore_the_clean_text(kind):
+    seen = 0
+    for text in SENTENCES:
+        for seed in range(6):
+            c, comma, form, spell = make(text, kind, seed)
+            assert len(words_of(c)) == len(spell) == len(comma) == len(form)
+            assert cr.restore(c, comma, form, spell) == text
+            seen += any(l != KEEP for l in spell)
+    assert seen, "no sentence got a %s error" % kind
+
+
+def test_join_splits_a_word_and_labels_the_first_part():
+    c, comma, form, spell = make("Компания получила сверхдоходности от продажи акций, поэтому руководство ушло.", "join", 3)
+    assert labelled(c, spell) in ([("сверх", "JOIN")], [("по", "JOIN")])
+    c, _, _, spell = make("Отчеты по незакрытых договорам были сданы вовремя.", "join")
+    assert c == "Отчеты по не закрытых договорам были сданы вовремя." and labelled(c, spell) == [("не", "JOIN")]
+
+
+def test_split_word_keeps_its_comma_on_the_second_part():
+    text = "Мы пришли рано, зато остальные остались."
+    c, comma, form, spell = make(text, "join")
+    assert c == "Мы пришли рано, за то остальные остались."
+    assert labelled(c, spell) == [("за", "JOIN")]
+
+
+def test_comma_label_of_a_split_word_moves_to_its_second_part(monkeypatch):
+    # the comma tagger saw "поэтому" and wants a comma after it (the comma was dropped by the first pass)
+    stub = ("Он ушёл поэтому как мы знаем", [cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_ADD] + [cr.COMMA_KEEP] * 3,
+            [cr.FORM_KEEP] * 6)
+    monkeypatch.setattr(cr, "corrupt", lambda text, rng, **kw: stub)
+    c, comma, form, spell = cr.corrupt_spell("ignored", random.Random(0), **only("join"))
+    assert c == "Он ушёл по этому как мы знаем"
+    assert comma == [cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_ADD] + [cr.COMMA_KEEP] * 3
+    assert spell[2] == "JOIN" and len(form) == 7
+    assert cr.restore(c, comma, form, spell) == "Он ушёл поэтому, как мы знаем"
+
+
+def test_capital_of_a_split_word_stays_on_the_first_part():
+    c, _, _, spell = make("Поэтому мы решили остаться дома надолго.", "join")
+    assert c.startswith("По этому мы") and spell[0] == "JOIN"
+
+
+def test_restore_moves_the_comma_onto_the_joined_word():
+    text = "Мы пришли за то мы рано"
+    comma = [cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_ADD, cr.COMMA_KEEP, cr.COMMA_KEEP]
+    spell = [KEEP, KEEP, "JOIN", KEEP, KEEP, KEEP]
+    assert cr.restore(text, comma, [cr.FORM_KEEP] * 6, spell) == "Мы пришли зато, мы рано"
+
+
+def test_hyphen_replaces_the_hyphen_with_a_space():
+    c, _, _, spell = make("Из-за задержки документ не был принят.", "hyphen")
+    assert c == "Из за задержки документ не был принят." and labelled(c, spell) == [("Из", "HYPHEN")]
+    c, _, _, spell = make("Кто-нибудь должен был прийти.", "hyphen")
+    assert c == "Кто нибудь должен был прийти." and spell[0] == "HYPHEN"
+
+
+def test_hyphen_at_a_line_break_is_not_a_compound():
+    # "заво-да" is a hyphenated "завода": the corruption would teach a wrong rule
+    c, _, _, spell = make("Мы приехали на заво-да утром.", "hyphen")
+    assert c == "Мы приехали на заво-да утром." and set(spell) == {KEEP}
+
+
+def test_split_error_joins_ne_with_a_verb():
+    c, _, _, spell = make("Мы решили не делать лишней работы.", "split")
+    assert c == "Мы решили неделать лишней работы." and labelled(c, spell) == [("неделать", "SPLIT")]
+    comma = [cr.COMMA_KEEP] * 5
+    assert cr.restore(c, comma, [cr.FORM_KEEP] * 5, spell) == "Мы решили не делать лишней работы."
+
+
+def test_ne_with_a_noun_or_adjective_is_not_joined():
+    c, _, _, spell = make("Это не проблема для нас.", "split")
+    assert set(spell) == {KEEP}
+
+
+def test_lower_capitalises_a_common_noun_after_a_capitalised_word():
+    c, _, _, spell = make("Налоговая служба направила письмо.", "lower", 1)
+    assert ("Служба", "LOWER") in labelled(c, spell)
+    for seed in range(8):
+        c, _, _, spell = make("Налоговая служба направила письмо.", "lower", seed)
+        assert not spell[0] == "LOWER"  # the first word of a sentence is never a LOWER target
+
+
+def test_upper_lowercases_a_sentence_start_or_a_name():
+    c, _, _, spell = make("Порядок утверждён приказом руководителя.", "upper")
+    assert c == "порядок утверждён приказом руководителя." and spell[0] == "UPPER"
+    results = [make("Заместитель Иван Петров подписал приказ.", "upper", s) for s in range(20)]
+    names = {labelled(c, sp)[0][0] for c, _, _, sp in results if labelled(c, sp)}
+    assert names & {"иван", "петров"}
+
+
+def test_protected_places_are_never_touched():
+    texts = ['В программе «Из-за океана» участвовали Wi-Fi и ЭВМ-класса в 2020-2021 годах.',
+             'См. «Налоговая служба» и "не делать" а также [Электронный ресурс] // Ведомости.',
+             "Файл Web-технологий версии 2-3 готов.",
+             "Файл с ГОСТ Р 5-6 и АО Иван."]
+    for text in texts:
+        for kind in ("join", "hyphen", "split", "lower", "upper"):
+            for seed in range(4):
+                c, comma, form, spell = make(text, kind, seed)
+                if kind in ("lower", "upper"):
+                    # a plain common noun may change; quoted, latin, numeric and abbreviated words may not
+                    assert all(t in c for t in ("«Из-за океана»", "Wi-Fi", "ЭВМ-класса", "2020-2021", "ГОСТ", "АО", "5-6") if t in text)
+                else:
+                    assert c == text and set(spell) == {KEEP}, (kind, c)
+
+
+def test_words_with_form_errors_are_not_spell_edited():
+    rng = random.Random(7)
+    for text in SENTENCES:
+        for _ in range(30):
+            c, comma, form, spell = cr.corrupt_spell(text, rng, p_spell=1.0, rates={k: 1e9 for k in cr.SPELL_RATES})
+            assert len(words_of(c)) == len(spell) == len(form)
+            assert all(l == KEEP for l, f in zip(spell, form) if f != cr.FORM_KEEP)
+
+
+def test_default_rates_are_small():
+    rng = random.Random(3)
+    hit = 0
+    n = 300
+    for k in range(n):
+        spell = cr.corrupt_spell(SENTENCES[k % 5], rng, p_spell=0.05, **CLEAN)[3]
+        hit += any(l != KEEP for l in spell)
+    assert hit < n * 0.5
+
+
+# ---- checker.spell_findings ------------------------------------------------------------------------
+
+def preds_for(body, labels):
+    """Fake predictions: labels = {word index: (label, p)}."""
+    out = []
+    for i, _ in enumerate(words_of(body)):
+        name, p = labels.get(i, (KEEP, 1.0))
+        probs = {k: 0.0 for k in cr.SPELL_LABELS}
+        probs[name] = p
+        probs[KEEP] += 1.0 - p if name != KEEP else 0.0
+        out.append({"comma": {"KEEP": 1.0, "ADD": 0.0, "DEL": 0.0}, "form": "KEEP", "form_p": 1.0, "form_keep_p": 1.0,
+                    "spell": probs})
+    return out
+
+
+def one(body, labels):
+    found = spell_findings(body, preds_for(body, labels))
+    return [(body[f["start"]:f["end"]], f["fix"], f["level"], f["message"]) for f in found]
+
+
+def test_join_finding_replaces_both_words():
+    body = "Он ушёл по этому пути, но не по этому."
+    assert one("Мы остались по этому не стали ждать.", {2: ("JOIN", 0.95)}) == [
+        ("по этому", "поэтому", "error", "Слово пишется слитно")]
+    assert one("Мы остались по этому не стали ждать.", {2: ("JOIN", 0.5)})[0][2:] == ("check", "Возможно, слово пишется слитно")
+    assert one(body, {2: ("JOIN", CHECK_SPELL - 0.01)}) == []
+    assert SURE_SPELL == 0.9
+
+
+def test_hyphen_finding():
+    assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.97)}) == [("из за", "из-за", "error", "Нужен дефис")]
+
+
+def test_split_finding_puts_a_space_after_ne():
+    assert one("Мы решили неделать этого.", {2: ("SPLIT", 0.95)}) == [
+        ("неделать", "не делать", "error", "Частица «не» пишется раздельно")]
+    assert one("Это незнание вредит.", {1: ("SPLIT", 0.95)}) == []  # a real word, a noun
+
+
+def test_case_findings():
+    assert one("Налоговая Служба направила письмо.", {1: ("LOWER", 0.95)}) == [
+        ("Служба", "служба", "error", "Слово пишется с маленькой буквы")]
+    assert one("Налоговая Служба направила письмо.", {0: ("LOWER", 0.95)}) == []  # sentence start
+    assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.95)}) == [
+        ("иван", "Иван", "error", "Слово пишется с большой буквы")]
+    assert one("Мы видели город москва.", {3: ("UPPER", 0.95)})[0][1] == "Москва"
+    assert one("Мы видели свежую газету.", {3: ("UPPER", 0.95)}) == []  # a common noun is not capitalised
+
+
+def test_sentence_start_capital_is_only_a_check_and_only_for_whole_sentences():
+    assert one("порядок утверждён приказом.", {0: ("UPPER", 0.99)}) == [
+        ("порядок", "Порядок", "check", "Возможно, слово пишется с большой буквы")]
+    assert one("обеспечение доступа;", {0: ("UPPER", 0.99)}) == []  # a list item
+
+
+def test_names_and_known_words_are_not_lowered():
+    assert one("Мы видели Российская Федерация там.", {3: ("LOWER", 0.99)}) == []  # a capital of official language
+    assert one("Мы видели Российская Федерация там.", {2: ("LOWER", 0.99)}) == []  # an adjective is never lowered
+
+
+def test_spell_findings_skip_quotes_protected_words_and_bibliography():
+    assert one("Книга «Из за океана» вышла.", {2: ("HYPHEN", 0.99)}) == []
+    assert one("Файл Wi Fi готов.", {1: ("HYPHEN", 0.99)}) == []
+    assert one("Иванов А. Из за океана // Ведомости.", {2: ("HYPHEN", 0.99)}) == []
+    assert one("Мы остались по, этому не стали.", {2: ("JOIN", 0.99)}) == []  # not a plain gap
+
+
+def test_no_op_for_a_model_without_the_head():
+    body = "Мы остались по этому не стали ждать."
+    preds = preds_for(body, {2: ("JOIN", 0.99)})
+    for p in preds:
+        del p["spell"]
+    assert spell_findings(body, preds) == [] and spell_findings(body, []) == []
+
+
+def test_spell_findings_merge_with_other_findings():
+    body = "Мы остались по этому не стали ждать."
+    found = spell_findings(body, preds_for(body, {2: ("JOIN", 0.95)}))
+    comma = {"start": 14, "end": 14, "level": "check", "rule": "MODEL_COMMA", "fix": ",", "message": "m"}
+    assert [f["rule"] for f in merge(found + [comma])] == ["MODEL_SPELL"]  # an insertion inside the joined span: the sure one wins
+    form = {"start": 15, "end": 20, "level": "check", "rule": "MODEL_FORM", "fix": "этой", "message": "m"}
+    assert [f["rule"] for f in merge(found + [form])] == ["MODEL_SPELL"]  # same place: the surer level wins
+    far = {"start": 30, "end": 35, "level": "check", "rule": "MODEL_FORM", "fix": "ждали", "message": "m"}
+    assert [f["rule"] for f in merge(found + [far])] == ["MODEL_SPELL", "MODEL_FORM"]
+
+
+def test_stage_of_the_model_with_the_head_reports_the_spelling(models_dir):
+    spell = {"этому": ("KEEP", 1.0), "по": ("JOIN", 0.95)}
+    factories = {"commas": lambda: FakeTagger(spell=spell), "forms": lambda: FakeTagger(), "sage": lambda: None}
+    checker = Checker(models_dir, factories=factories)
+    found = {}
+    for stage, i, items in checker.stream(["Мы остались по этому не стали ждать."], stages=("commas", "forms")):
+        found[stage] = [(f["rule"], f["fix"], f["level"]) for f in items]
+    assert found["commas"] == [("MODEL_SPELL", "поэтому", "error")]
+    assert found["forms"] == []
+
+
+# ---- product tagger decoding -----------------------------------------------------------------------
+
+def logits(n_tokens, n_form, spell_hot=None):
+    comma = np.zeros((1, n_tokens, 3), dtype=np.float32)
+    form = np.zeros((1, n_tokens, n_form), dtype=np.float32)
+    form[..., 0] = 5
+    comma[..., 0] = 5
+    out = [comma, form]
+    if spell_hot is not None:
+        sp = np.zeros((1, n_tokens, 6), dtype=np.float32)
+        sp[..., 0] = 5
+        for t, k in spell_hot.items():
+            sp[0, t, 0], sp[0, t, k] = 0.0, 9.0
+        out.append(sp)
+    return out
+
+
+def test_decode_without_the_head_has_no_spell_key():
+    res = product_tagger.decode(logits(4, 3), ["KEEP", "case:gent", "number:plur"], {0: 1, 1: 2})
+    assert len(res) == 2 and all("spell" not in r for r in res)
+    assert res[0]["form"] == "KEEP" and 0.9 < res[0]["form_p"] <= 1.0
+
+
+def test_decode_with_the_head_gives_probabilities_per_label():
+    res = product_tagger.decode(logits(4, 3, {2: 1}), ["KEEP", "a", "b"], {0: 1, 1: 2})
+    assert set(res[0]["spell"]) == set(cr.SPELL_LABELS) and res[1]["spell"]["JOIN"] > 0.99
+    assert res[0]["spell"]["KEEP"] > 0.9 and abs(sum(res[1]["spell"].values()) - 1.0) < 1e-5
+
+
+class FakeEncoding:
+    def __init__(self, text):
+        import re
+        self.offsets = [(0, 0)] + [m.span() for m in re.finditer(r"\w+", text)] + [(0, 0)]
+        self.ids = list(range(len(self.offsets)))
+
+
+class FakeTokenizer:
+    def encode(self, text):
+        return FakeEncoding(text)
+
+
+class FakeSession:
+    def __init__(self, with_head):
+        self.with_head = with_head
+
+    def run(self, _, feed):
+        n = feed["input_ids"].shape[1]
+        return logits(n, 2, {2: 1} if self.with_head else None)
+
+
+@pytest.mark.parametrize("with_head", [False, True])
+def test_product_tagger_predicts_with_and_without_the_head(with_head):
+    t = product_tagger.EditTagger.__new__(product_tagger.EditTagger)
+    t.form_labels, t.tokenizer, t.session = ["KEEP", "case:gent"], FakeTokenizer(), FakeSession(with_head)
+    t.spell_labels = product_tagger.SPELL_LABELS
+    res = t.predict("Мы пошли домой")
+    assert len(res) == 3 and all(set(r["comma"]) == {"KEEP", "ADD", "DEL"} for r in res)
+    assert ("spell" in res[1]) == with_head
+    if with_head:
+        assert res[1]["spell"]["JOIN"] > 0.99 and res[0]["spell"]["KEEP"] > 0.9
