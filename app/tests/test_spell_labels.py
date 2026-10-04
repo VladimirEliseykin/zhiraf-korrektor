@@ -11,7 +11,7 @@ import pytest
 import zhiraf
 from fakes import FakeTagger
 from spellcheck import tagger as product_tagger
-from spellcheck.checker import CHECK_SPELL, SURE_SPELL, Checker, merge, spell_findings
+from spellcheck.checker import SPELL_THRESHOLDS, Checker, merge, spell_findings
 from spellcheck.text import words_of
 
 TRAIN = os.path.join(zhiraf.ROOT, "train")
@@ -212,8 +212,11 @@ def preds_for(body, labels):
     return out
 
 
-def one(body, labels):
-    found = spell_findings(body, preds_for(body, labels))
+ALL = {label: (0.9, 0.3) for label in cr.SPELL_LABELS if label != "KEEP"}  # every label on, to test the mechanics
+
+
+def one(body, labels, thresholds=SPELL_THRESHOLDS):
+    found = spell_findings(body, preds_for(body, labels), thresholds)
     return [(body[f["start"]:f["end"]], f["fix"], f["level"], f["message"]) for f in found]
 
 
@@ -224,8 +227,7 @@ def test_join_finding_replaces_both_words():
     assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.95)}) == [
         ("сверх доходности", "сверхдоходности", "error", "Слово пишется слитно")]
     assert one("Мы остались по этому не стали ждать.", {2: ("JOIN", 0.5)})[0][2:] == ("check", "Возможно, слово пишется слитно")
-    assert one(body, {2: ("JOIN", CHECK_SPELL - 0.01)}) == []
-    assert SURE_SPELL == 0.9
+    assert one(body, {2: ("JOIN", 0.29)}) == []
 
 
 def test_hyphen_finding():
@@ -240,18 +242,18 @@ def test_split_finding_puts_a_space_after_ne():
 
 def test_case_findings():
     assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.98)}) == [
-        ("Газета", "газета", "error", "Слово пишется с маленькой буквы")]
+        ("Газета", "газета", "check", "Возможно, слово пишется с маленькой буквы")]
     assert one("Налоговая Газета направила письмо.", {0: ("LOWER", 0.98)}) == []  # sentence start
-    assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.95)}) == [
+    assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.95)}, ALL) == [
         ("иван", "Иван", "error", "Слово пишется с большой буквы")]
-    assert one("Мы видели город москва.", {3: ("UPPER", 0.95)})[0][1] == "Москва"
-    assert one("Мы видели свежую газету.", {3: ("UPPER", 0.95)}) == []  # a common noun is not capitalised
+    assert one("Мы видели город москва.", {3: ("UPPER", 0.95)}, ALL)[0][1] == "Москва"
+    assert one("Мы видели свежую газету.", {3: ("UPPER", 0.95)}, ALL) == []  # a common noun is not capitalised
 
 
 def test_sentence_start_capital_is_only_a_check_and_only_for_whole_sentences():
-    assert one("порядок утверждён приказом.", {0: ("UPPER", 0.99)}) == [
+    assert one("порядок утверждён приказом.", {0: ("UPPER", 0.99)}, ALL) == [
         ("порядок", "Порядок", "check", "Возможно, слово пишется с большой буквы")]
-    assert one("обеспечение доступа;", {0: ("UPPER", 0.99)}) == []  # a list item
+    assert one("обеспечение доступа;", {0: ("UPPER", 0.99)}, ALL) == []  # a list item
 
 
 def test_names_and_known_words_are_not_lowered():
@@ -407,7 +409,7 @@ def test_lower_is_sure_or_nothing():
     body = "Налоговая Газета направила письмо."
     assert one(body, {1: ("LOWER", 0.96)}) == []
     assert one(body, {1: ("LOWER", 0.5)}) == []
-    assert one(body, {1: ("LOWER", 0.98)}) == [("Газета", "газета", "error", "Слово пишется с маленькой буквы")]
+    assert one(body, {1: ("LOWER", 0.98)}) == [("Газета", "газета", "check", "Возможно, слово пишется с маленькой буквы")]
 
 
 def test_join_of_ne_needs_a_known_joined_word():
@@ -461,5 +463,23 @@ def test_findings_carry_their_label_and_thresholds_can_be_swept():
     body = "Налоговая Газета направила письмо."
     preds = preds_for(body, {1: ("LOWER", 0.8)})
     assert spell_findings(body, preds) == []                                  # below SURE_LOWER
-    found = spell_findings(body, preds, check=0.5, sure_lower=0.5)            # the evaluation sweeps both
+    found = spell_findings(body, preds, {"LOWER": (0.5, 0.5)})                # the evaluation sweeps both
     assert [f["label"] for f in found] == ["LOWER"]
+
+
+def test_shipped_spell_thresholds_are_pinned():
+    # measured on the real gold with train/spell_eval.py (see the comment at SPELL_THRESHOLDS)
+    assert SPELL_THRESHOLDS == {"JOIN": (0.9, 0.3), "HYPHEN": (0.97, 0.7), "LOWER": (None, 0.97), "SPLIT": (0.9, 0.5)}
+    assert "UPPER" not in SPELL_THRESHOLDS
+
+
+def test_shipped_thresholds_per_label():
+    assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.89)})[0][2] == "check"
+    assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.29)}) == []
+    assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.96)})[0][2] == "check"
+    assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.69)}) == []
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.96)}) == []
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.999)})[0][2] == "check"  # never an error
+    assert one("Мы решили неделать этого.", {2: ("SPLIT", 0.89)})[0][2] == "check"
+    assert one("Мы решили неделать этого.", {2: ("SPLIT", 0.49)}) == []
+    assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.999)}) == []  # disabled

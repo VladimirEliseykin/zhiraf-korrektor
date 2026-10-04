@@ -8,7 +8,7 @@ the guards (title nouns, "не", ambiguous pairs, dictionary checks) are part of
 For every spelling label and threshold it prints
   official: findings per 100 clean sentences (every one is a false alarm, the text is clean);
   gold:     findings whose fix reproduces a gold edit of spelling type (joined/split/hyphen/case), and the rest.
-The threshold is the lowest probability of the label for a finding (LOWER included: the built-in 0.97 is lifted).
+The threshold is the lowest probability of the label for a finding (every label at this one threshold, the shipped per-label ones lifted).
 """
 import argparse
 import os
@@ -61,10 +61,10 @@ def report(run_dir, official, real, gold_spelling):
     for label in LABELS:
         for t in THRESHOLDS:
             n = sum(1 for _, _, body, preds in official
-                    for f in spell_findings(body, preds, check=t, sure_lower=t) if f["label"] == label)
+                    for f in spell_findings(body, preds, {l: (t, t) for l in LABELS}) if f["label"] == label)
             hit = other = 0
             for item, marker, body, preds in real:
-                for f in spell_findings(body, preds, check=t, sure_lower=t):
+                for f in spell_findings(body, preds, {l: (t, t) for l in LABELS}):
                     if f["label"] != label:
                         continue
                     if finding_hits_spelling(item, marker, body, f, gold_spelling[item["src"]]):

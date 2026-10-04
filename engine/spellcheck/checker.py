@@ -46,8 +46,19 @@ CHECK_COMBINE = {}
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
-SURE_SPELL, CHECK_SPELL = 0.9, 0.3  # spelling head (joined/split words, hyphens, capitals); not yet measured on gold
-SURE_LOWER = 0.97  # a wrong capital is the likeliest false alarm on official text: sure or nothing, no "check"
+# Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
+# absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
+#   JOIN   0.9: 10 / 1, no official false alarm (0.3 is the check band: still nothing sure)
+#   HYPHEN 0.97: 3 / 0; 0.7: 5 / 1
+#   LOWER  0.97: 2 / 4 and false alarms on clean official text: a hint only, never an error
+#   UPPER  never right on gold, up to 1.09 official false alarms per 100: disabled
+#   SPLIT  never fires on gold (no data either way): conservative, like JOIN
+SPELL_THRESHOLDS = {
+    "JOIN": (0.9, 0.3),
+    "HYPHEN": (0.97, 0.7),
+    "LOWER": (None, 0.97),
+    "SPLIT": (0.9, 0.5),
+}
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
 
@@ -179,10 +190,11 @@ def spell_fix(body, ms, i, label, quotes):
     return None
 
 
-def spell_findings(body, preds, check=CHECK_SPELL, sure_lower=SURE_LOWER):
+def spell_findings(body, preds, thresholds=SPELL_THRESHOLDS):
     """Joined/split/hyphenated words and wrong capitals from the spelling head; nothing without the head.
 
-    check / sure_lower are the lowest probabilities of any label / of LOWER (train/spell_eval.py sweeps them).
+    thresholds maps a label to (error, check) probabilities (None = never at that level); labels not in it are
+    off (train/spell_eval.py sweeps them).
 
     The fix is built from the label: JOIN/HYPHEN replace the two words by their joined or hyphenated
     form, SPLIT puts a space after "не", LOWER/UPPER change the first letter."""
@@ -196,12 +208,15 @@ def spell_findings(body, preds, check=CHECK_SPELL, sure_lower=SURE_LOWER):
         if any(a < m.start() < b for a, b in quotes) or protected(word):
             continue
         label, prob = max(((k, v) for k, v in p["spell"].items() if k != "KEEP"), key=lambda kv: kv[1])
-        if prob < check or label == "LOWER" and prob < sure_lower:
+        if label not in thresholds:
+            continue
+        sure, check = thresholds[label]
+        if prob < min(t for t in (sure, check) if t is not None):
             continue
         fix = spell_fix(body, ms, i, label, quotes)
         if fix is None:
             continue
-        level = "error" if prob >= (SURE_LOWER if label == "LOWER" else SURE_SPELL) else "check"
+        level = "error" if sure is not None and prob >= sure else "check"
         if label == "JOIN" and i + 1 < len(ms) and spelling.is_ambiguous_pair(word, ms[i + 1].group(0)):
             level = "check"  # valid apart in some context ("по этому вопросу"): never a sure error
         if label == "UPPER" and i == 0:
