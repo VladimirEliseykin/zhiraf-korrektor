@@ -12,6 +12,7 @@ payload*/
 uv-cache/
 uv-python/
 venv-train/
+venv-app/
 spike/venv/
 spike/uv-python/
 spike/models/
