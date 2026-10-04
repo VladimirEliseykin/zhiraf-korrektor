@@ -14,6 +14,7 @@ class Progress(object):
         self.cost = dict(cost)
         self.clock = clock
         self.done = {s: 0 for s in self.stages}
+        self.skipped = {s: 0 for s in self.stages}  # work a resumed check does not repeat
         self.started = None
         self.last_event = None
         self.stage_begin = {}
@@ -24,6 +25,11 @@ class Progress(object):
         t0 = self.clock()
         self.started = t0
         self.last_event = t0
+
+    def skip(self, stage, count):
+        """Count `count` sentences of the stage as already done (a resumed check)."""
+        if stage in self.skipped:
+            self.skipped[stage] = max(0, min(self.n, count))
 
     def sentence_done(self, stage):
         now = self.clock()
@@ -44,7 +50,8 @@ class Progress(object):
         total = self._total()
         if total <= 0:
             return 1.0
-        return min(1.0, self._units(self.done) / total)
+        counts = {s: self.done[s] + self.skipped[s] for s in self.stages}
+        return min(1.0, self._units(counts) / total)
 
     def _get_rates(self):
         rates = {}
@@ -81,12 +88,13 @@ class Progress(object):
 
         remaining = 0.0
         for stage in self.stages:
-            if self.done[stage] == self.n:
+            left = self.n - self.done[stage] - self.skipped[stage]
+            if left <= 0:
                 continue
             elif stage in rates:
-                remaining += (self.n - self.done[stage]) * rates[stage]
+                remaining += left * rates[stage]
             else:
-                remaining += (self.n - self.done[stage]) * self.cost[stage] * speed_factor
+                remaining += left * self.cost[stage] * speed_factor
                 if self.done[stage] == 0 and self.cost[stage] >= MIN_LOAD_COST:
                     remaining += average_load
 

@@ -48,3 +48,40 @@ def test_strict_level_shows_only_in_strict_mode():
     assert visible_level("strict", False) is None
     assert visible_level("strict", True) == "check"
     assert visible_level("error", False) == "error" and visible_level("check", True) == "check"
+
+
+def test_start_resumes_in_the_middle_of_a_stage(models_dir):
+    seen = [(stage, i) for stage, i, _ in checker(models_dir).stream(SENTENCES, start=("forms", 2))]
+    assert seen == [("forms", 2), ("forms", 3)] + [("sage", i) for i in range(len(SENTENCES))]
+
+
+def test_skipped_stages_load_no_model(models_dir):
+    loaded = []
+    factories = make_factories()
+    for name, make in list(factories.items()):
+        factories[name] = (lambda n, m: lambda: (loaded.append(n), m())[1])(name, make)
+    c = Checker(models_dir, factories=factories)
+    list(c.stream(SENTENCES, start=("sage", 0)))
+    assert loaded == ["sage"]
+
+
+def test_rules_still_see_the_whole_context_when_resumed(models_dir):
+    c = checker(models_dir)
+    full = [f for stage, i, f in c.stream(SENTENCES, start=("rules", 0)) if stage == "rules"]
+    resumed = [f for stage, i, f in c.stream(SENTENCES, start=("rules", 2)) if stage == "rules"]
+    assert resumed == full[2:]
+
+
+def test_empty_sentence_list_loads_nothing(models_dir):
+    def boom():
+        raise AssertionError("a model was loaded")
+    c = Checker(models_dir, factories={"commas": boom, "forms": boom, "sage": boom})
+    assert list(c.stream([])) == []
+
+
+def test_stopped_flag(models_dir):
+    c = checker(models_dir)
+    list(c.stream(SENTENCES, should_stop=lambda: True))
+    assert c.stopped is True
+    list(c.stream(SENTENCES))
+    assert c.stopped is False

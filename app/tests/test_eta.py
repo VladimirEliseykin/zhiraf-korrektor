@@ -21,7 +21,7 @@ def test_fraction_weighs_stages_by_cost():
     assert p.fraction() == pytest.approx(10 / 40)
 
 
-def test_load_gap_inflates_estimate():
+def test_load_gap_does_not_inflate_estimate():
     """Load pauses between stages should not inflate the final estimate."""
     clock = Clock()
     cost = {"rules": 0.003, "commas": 0.1, "forms": 0.1, "sage": 0.5}
@@ -85,4 +85,15 @@ def test_done_and_empty_document():
     clock = Clock()
     p = Progress(0, ("commas",), COST, clock)
     p.start()
+    assert p.fraction() == 1.0
+
+
+def test_skipped_work_counts_as_done():
+    p = Progress(10, ("a", "b"), {"a": 1.0, "b": 1.0}, Clock())
+    p.skip("a", 10)
+    p.skip("b", 5)
+    assert p.fraction() == pytest.approx(15 / 20)
+    p.start()
+    for _ in range(5):
+        p.sentence_done("b")
     assert p.fraction() == 1.0

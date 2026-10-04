@@ -53,3 +53,13 @@ def make_broken_factories():
     factories = make_factories()
     factories["commas"] = _broken
     return factories
+
+
+def _oom():
+    raise RuntimeError("bad allocation of 4 GB for the weights")
+
+
+def make_oom_factories():
+    factories = make_factories()
+    factories["commas"] = _oom
+    return factories
