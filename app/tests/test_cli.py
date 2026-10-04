@@ -44,6 +44,13 @@ def test_main_reports_document_errors(tmp_path, models_dir, capsys):
     assert code == 2 and "Файл не найден" in capsys.readouterr().err
 
 
+def test_main_reports_a_crashed_check_without_traceback(tmp_path, models_dir, capsys):
+    src = make_docx(tmp_path / "a.docx", P(R("Так же был.")))
+    code = cli.main(["check", src, "--models", models_dir, "--factories", "fakes:make_broken_factories"])
+    err = capsys.readouterr().err
+    assert code == 3 and "Проверка прервалась" in err and "Traceback" not in err
+
+
 @pytest.mark.slow
 def test_real_models_fix_an_ending(tmp_path):
     src = make_docx(tmp_path / "a.docx",

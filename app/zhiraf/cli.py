@@ -15,6 +15,10 @@ from .segment import split_sentences
 from .worker import CheckJob
 
 
+class CheckError(Exception):
+    """The background check died; the message is for the user."""
+
+
 def plan_sentences(paragraphs):
     sentences, where = [], []
     for index, text in enumerate(paragraphs):
@@ -34,8 +38,8 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
         session = ReviewSession(paragraphs, storage.Dictionary())
         job = CheckJob(models, sentences, context=sentences, stages=stages, strict=settings["strict_mode"],
                        threads=threads, factories=factories)
-        job.start()
         try:
+            job.start()
             while not job.finished:
                 for message in job.poll(timeout=0.5):
                     if message[0] == "findings":
@@ -46,7 +50,7 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
         finally:
             job.close()
         if job.error is not None:
-            raise RuntimeError(job.error[1])
+            raise CheckError(job.error[1])
         if accept_errors:
             session.accept_all_errors()
         saved = save_document(doc, session.replacements(), out)
@@ -87,6 +91,12 @@ def main(argv=None):
     except DocumentError as e:
         sys.stderr.write("\n%s\n" % e)
         return 2
+    except CheckError as e:
+        sys.stderr.write("\n%s\n" % e)
+        return 3
+    except KeyboardInterrupt:
+        sys.stderr.write("\nПроверка остановлена.\n")
+        return 130
     c = result["counts"]
     sys.stderr.write("\n")
     print("Ошибки: %d · Проверить: %d · Исправлено: %d · Пропущено: %d" % (c["errors"], c["checks"], c["fixed"],
