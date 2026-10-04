@@ -56,8 +56,24 @@ def _read_json(path, default):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except ValueError:
+    except (ValueError, OSError):
         return default  # a damaged file must not stop the program
+
+
+def _read_text_lines(path):
+    """Read text file line by line, handling UTF-8 and cp1251 encodings. Returns [] on error."""
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode("cp1251")
+        return text.splitlines()
+    except (UnicodeDecodeError, OSError):
+        return []
 
 
 class Dictionary:
@@ -66,10 +82,8 @@ class Dictionary:
     def __init__(self, path=None):
         self.path = path or os.path.join(data_dir(), "словарь.txt")
         self._words = {}
-        if os.path.exists(self.path):
-            with open(self.path, encoding="utf-8-sig") as f:
-                for line in f:
-                    self._remember(line.strip())
+        for line in _read_text_lines(self.path):
+            self._remember(line.strip())
 
     def _remember(self, word):
         if word:
@@ -97,9 +111,8 @@ class Dictionary:
 
     def import_from(self, path):
         before = len(self._words)
-        with open(path, encoding="utf-8-sig") as f:
-            for line in f:
-                self._remember(line.strip())
+        for line in _read_text_lines(path):
+            self._remember(line.strip())
         self._save()
         return len(self._words) - before
 
@@ -132,7 +145,9 @@ class Recent:
         self.settings = settings
         self.path = path or os.path.join(data_dir(), "недавние.json")
         items = _read_json(self.path, [])
-        self._items = items if isinstance(items, list) else []
+        # Keep only valid items: must be dicts with a string "path" field
+        self._items = [i for i in (items if isinstance(items, list) else [])
+                       if isinstance(i, dict) and isinstance(i.get("path"), str)]
 
     def items(self):
         return list(self._items)

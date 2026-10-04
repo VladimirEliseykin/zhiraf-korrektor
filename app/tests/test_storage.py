@@ -86,3 +86,55 @@ def test_clean_tmp_removes_leftovers():
 def test_folders_follow_profile_override(zhiraf_home):
     assert storage.data_dir() == str(zhiraf_home)
     assert storage.tmp_dir() == os.path.join(str(zhiraf_home), "tmp")
+
+
+def test_dictionary_loads_cp1251_encoded_file(tmp_path):
+    path = str(tmp_path / "cp1251_dict.txt")
+    # Write file in cp1251 encoding
+    with open(path, "wb") as f:
+        f.write("слово\nтест\n".encode("cp1251"))
+    d = storage.Dictionary(path)
+    assert "слово" in d
+    assert "тест" in d
+    assert d.words() == ["слово", "тест"]
+
+
+def test_dictionary_import_from_cp1251_file(tmp_path):
+    # Create a cp1251 encoded file
+    src_path = str(tmp_path / "cp1251_import.txt")
+    with open(src_path, "wb") as f:
+        f.write("импорт\nданные\n".encode("cp1251"))
+
+    d = storage.Dictionary(str(tmp_path / "main_dict.txt"))
+    d.add("существующее")
+    count = d.import_from(src_path)
+    assert count == 2  # both words are new
+    assert "импорт" in d
+    assert "данные" in d
+    assert "существующее" in d
+
+
+def test_recent_with_invalid_entries_loads_valid_ones(tmp_path):
+    import json
+    import time
+
+    recent_path = str(tmp_path / "recent.json")
+    # Write a file with mixed valid and invalid entries
+    data = [
+        {"path": "a.docx", "opened_at": time.time(), "stats": {}},
+        "x",  # invalid: not a dict
+        {"opened_at": 1},  # invalid: missing "path"
+        {"path": "b.docx", "opened_at": time.time(), "stats": {}},
+    ]
+    with open(recent_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    r = storage.Recent(storage.Settings(), recent_path)
+    items = r.items()
+    assert len(items) == 2
+    paths = [os.path.basename(i["path"]) for i in items]
+    assert set(paths) == {"a.docx", "b.docx"}
+
+    # touch() should work after loading corrupted file
+    r.touch(str(tmp_path / "c.docx"), {"fixed": 5})
+    assert len(r.items()) == 3
