@@ -27,12 +27,13 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # Commas: R3 (commas) + R6 (commas-2) + R7 (commas-3), "min", chosen on dev by train/ensemble_eval.py.
 # Right / false comma edits at "error" on the real gold (dev | test), clean official false alarms in brackets:
 #   R3 alone, ADD 0.9 DEL 0.9:      22 / 3 | 21 / 3  (1)
-#   the ensemble, ADD 0.7 DEL 0.8:  27 / 2 | 26 / 4  (1)     "check" band (ADD >= 0.3), right / false, official:
-#   R3 alone: 29 / 17 | 30 / 23 (8)   the ensemble: 28 / 6 | 28 / 16 (3)
+#   the ensemble, ADD 0.7 DEL 0.8:  27 / 2 | 26 / 4  (1)
+# "Check" band, ADD only, right / false (official): R3 alone at 0.3: 29 / 17 | 30 / 23 (8); the ensemble at
+# 0.3: 28 / 6 | 28 / 16 (3), at 0.2 (chosen on dev: R3's recall with half the false marks): 30 / 9 | 29 / 24 (3).
 # Forms: no ensemble beat R5 alone on dev (best 14 / 1 against 13 / 1 and fewer), so forms stay single-model;
 # the *_ENS form thresholds only keep the stage consistent if a second forms model is ever added.
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
-SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.3
+SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
 SURE_FORM_ENS, CHECK_FORM_ENS = 0.9, 0.3
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}

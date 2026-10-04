@@ -34,7 +34,7 @@ def test_two_models_that_agree_give_the_finding(models_dir):
 def test_min_needs_both_models(models_dir):
     assert commas(two_models(models_dir, after_b=()))[0] == []  # the second model does not see the comma
     # below the "check" band of the second model: nothing, between the bands: only a "check"
-    assert commas(two_models(models_dir, p_b=0.2))[0] == []
+    assert commas(two_models(models_dir, p_b=0.15))[0] == []
     level = commas(two_models(models_dir, p_a=0.95, p_b=0.5))[0]
     assert level == [("MODEL_COMMA", "check")]
 
