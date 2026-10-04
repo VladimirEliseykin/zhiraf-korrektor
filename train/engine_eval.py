@@ -1,6 +1,7 @@
 """Score the product engine (spellcheck.checker) on the real gold and on clean official text.
 
 Usage: python engine_eval.py <models_dir> <out_findings.json> [threads]
+Prints the report twice: without the "spell" stage (baseline) and with it (the findings file has the latter).
 This is the number that matters: the exact code path the program runs. Documents are checked whole
 (context = all their sentences), gold sentences are scored by fixed / highlighted / missed errors.
 """
@@ -40,6 +41,17 @@ def edits_of(item, findings, level):
     return result
 
 
+def check_both(engine, sentences, context):
+    """(merged findings, merged findings without the spell stage) for each sentence, one model pass for both."""
+    found = [[] for _ in sentences]
+    base = [[] for _ in sentences]
+    for stage, i, items in engine.stream(sentences, context):
+        found[i].extend(items)
+        if stage != "spell":
+            base[i].extend(items)
+    return [checker.merge(f) for f in found], [checker.merge(f) for f in base]
+
+
 def main():
     models_dir, out_path = sys.argv[1], sys.argv[2]
     threads = int(sys.argv[3]) if len(sys.argv) > 3 else 4
@@ -47,6 +59,7 @@ def main():
     sets = bench.load_sets()
     by_doc, official_doc = documents()
     engine = checker.Checker(models_dir, threads)
+    without = {}  # the same run without the "spell" stage: the baseline for what the spelling head adds
     results = {}
     started = time.perf_counter()
     for set_name in ("real", "official"):
@@ -55,12 +68,20 @@ def main():
         for item in items:
             groups[item.get("doc") or official_doc[item["src"]]].append(item)
         for doc, group in groups.items():
-            found = engine.check_document([i["src"] for i in group], context=by_doc.get(doc))
-            for item, f in zip(group, found):
+            found, base = check_both(engine, [i["src"] for i in group], by_doc.get(doc))
+            for item, f, b in zip(group, found, base):
                 results[item["src"]] = f
+                without[item["src"]] = b
         print("%s checked in %.0f s" % (set_name, time.perf_counter() - started), flush=True)
     json.dump(results, open(out_path, "w", encoding="utf-8"), ensure_ascii=False)
+    for label, res in (("WITHOUT the spell stage (baseline)", without), ("WITH the spell stage", results)):
+        print("\n########## %s ##########" % label)
+        report(res, sets)
+    for stage, s in engine.stats.items():
+        print("stage %s: %s" % (stage, s))
 
+
+def report(results, sets):
     for set_name, items in (("реальные %d" % (len(sets["dev"]) + len(sets["test"])), sets["dev"] + sets["test"]),
                             ("офиц. чистые %d" % len(sets["official"]), sets["official"])):
         fixed = flagged = total = sure_false = check_false = 0
@@ -110,8 +131,6 @@ def main():
             print("по типам: исправлено / подсвечено / всего")
             for k, (fx, fl, tot) in sorted(by_kind.items(), key=lambda x: -x[1][2]):
                 print("  %-20s %3d / %3d / %3d" % (k, fx, fl, tot))
-    for stage, s in engine.stats.items():
-        print("stage %s: %s" % (stage, s))
 
 
 if __name__ == "__main__":

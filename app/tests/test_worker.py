@@ -20,7 +20,7 @@ def test_all_stages_report_every_sentence(models_dir):
     job = CheckJob(models_dir, SENTENCES, factories="fakes:make_factories")
     messages = run(job)
     findings = [m for m in messages if m[0] == "findings"]
-    assert len(findings) == 4 * len(SENTENCES)
+    assert len(findings) == 5 * len(SENTENCES)
     assert messages[-1][0] == "done" and job.error is None
     assert job.progress.fraction() == 1.0 and job.stopped is False
     rules = [f["rule"] for m in findings if m[1] == "forms" for f in m[3]]
@@ -119,6 +119,7 @@ def test_resumed_job_skips_earlier_work(models_dir):
     messages = run(job)
     findings = [(m[1], m[2]) for m in messages if m[0] == "findings"]
     assert findings == [("commas", 1), ("commas", 2), ("forms", 0), ("forms", 1), ("forms", 2),
+                        ("spell", 0), ("spell", 1), ("spell", 2),
                         ("sage", 0), ("sage", 1), ("sage", 2)]
     assert job.progress.fraction() == 1.0 and job.error is None
 

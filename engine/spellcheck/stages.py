@@ -1,8 +1,8 @@
 """Stage names, their relative cost and model folders; no heavy imports, so the window can read them cheaply."""
 import os
 
-STAGES = ("rules", "commas", "forms", "sage")  # value per second of waiting: rules are instant, SAGE is slowest
-STAGE_COST = {"rules": 0.003, "commas": 0.1, "forms": 0.1, "sage": 0.5}  # s/sentence per model pass, Windows 7 VM (job5)
+STAGES = ("rules", "commas", "forms", "spell", "sage")  # value per second of waiting: rules are instant, SAGE is slowest
+STAGE_COST = {"rules": 0.003, "commas": 0.1, "forms": 0.1, "spell": 0.1, "sage": 0.5}  # s/sentence per model pass, Windows 7 VM (job5)
 MAX_STAGE_MODELS = 3
 
 

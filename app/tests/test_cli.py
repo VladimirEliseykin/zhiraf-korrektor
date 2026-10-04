@@ -66,7 +66,7 @@ def test_missing_models_names_the_first_missing_item(tmp_path):
     assert "vocab.tsv" in missing_models(str(folder))
     (folder / "vocab.tsv").write_text("а\t1\n", encoding="utf-8")
     assert "sage" in missing_models(str(folder))
-    for name in ("sage", "commas", "forms"):
+    for name in ("sage", "commas", "forms", "spell"):
         (folder / name).mkdir()
     assert missing_models(str(folder)) is None
     assert "Не найдена папка" in missing_models(str(tmp_path / "нет"))

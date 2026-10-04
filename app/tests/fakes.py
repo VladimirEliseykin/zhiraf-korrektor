@@ -57,6 +57,7 @@ class FakeSage:
 def make_factories():
     return {"commas": lambda: FakeTagger(comma_after={"Документ"}),
             "forms": lambda: FakeTagger(forms={"информации": ("case:ablt", 0.95)}),
+            "spell": lambda: FakeTagger(),
             "sage": lambda: FakeSage({"инфомационной": "информационной"})}
 
 

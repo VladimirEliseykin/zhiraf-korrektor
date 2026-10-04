@@ -287,15 +287,16 @@ def test_spell_findings_merge_with_other_findings():
     assert [f["rule"] for f in merge(found + [far])] == ["MODEL_SPELL", "MODEL_FORM"]
 
 
-def test_stage_of_the_model_with_the_head_reports_the_spelling(models_dir):
+def test_spelling_comes_from_the_spell_stage_only(models_dir):
     spell = {"доходности": ("KEEP", 1.0), "сверх": ("JOIN", 0.95)}
-    factories = {"commas": lambda: FakeTagger(spell=spell), "forms": lambda: FakeTagger(), "sage": lambda: None}
+    factories = {"commas": lambda: FakeTagger(spell=spell), "forms": lambda: FakeTagger(),
+                 "spell": lambda: FakeTagger(spell=spell), "sage": lambda: None}
     checker = Checker(models_dir, factories=factories)
     found = {}
-    for stage, i, items in checker.stream(["Мы получили сверх доходности от акций."], stages=("commas", "forms")):
+    for stage, i, items in checker.stream(["Мы получили сверх доходности от акций."], stages=("commas", "forms", "spell")):
         found[stage] = [(f["rule"], f["fix"], f["level"]) for f in items]
-    assert found["commas"] == [("MODEL_SPELL", "сверхдоходности", "error")]
-    assert found["forms"] == []
+    assert found["spell"] == [("MODEL_SPELL", "сверхдоходности", "error")]
+    assert found["commas"] == found["forms"] == []  # a model with the head in another stage adds no spelling
 
 
 # ---- product tagger decoding -----------------------------------------------------------------------

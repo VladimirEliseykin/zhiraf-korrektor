@@ -1,6 +1,6 @@
 """N-model ensembles of edit taggers, scored from the cached bench predictions (no model is run).
 
-Usage: python ensemble_eval.py <run_dir>... [--max-models 3] [--out result.json]
+Usage: python ensemble_eval.py <run_dir>... [--max-models 3] [--heads comma,form] [--must-include run,...]
 
 For every subset of the given runs (1..max-models) and two combiners it scores
   commas: "min" (agreement: an edit needs every model above the threshold) or "mean" of the probabilities,
@@ -182,11 +182,13 @@ def add_vec(x, y):
     return x[0] + y[0], x[1] + y[1]
 
 
-def build(data, head, max_models):
+def build(data, head, max_models, must=()):
     """{(names, how): {threshold: (tp per sentence, fp per sentence)}} for every subset of the loaded runs."""
     out = {}
     for k in range(1, max_models + 1):
         for names in itertools.combinations(data.runs, k):
+            if any(m not in names for m in must):
+                continue
             for how in (("min",) if k == 1 else ("min", "mean")):
                 if head == "comma":
                     parts = data.comma_vectors(names, how)
@@ -273,6 +275,15 @@ def selection_stability(data, table, ref, rounds=500, seed=2):
 def main():
     args = sys.argv[1:]
     max_models = 3
+    heads, must = ("comma", "form"), ()
+    if "--heads" in args:  # comma and/or form (the comma head needs the comma reference run loaded)
+        i = args.index("--heads")
+        heads = tuple(args[i + 1].split(","))
+        del args[i:i + 2]
+    if "--must-include" in args:  # only subsets that contain these runs (by folder name)
+        i = args.index("--must-include")
+        must = tuple(args[i + 1].split(","))
+        del args[i:i + 2]
     if "--max-models" in args:
         i = args.index("--max-models")
         max_models = int(args[i + 1])
@@ -282,7 +293,9 @@ def main():
     n = {k: len(v) for k, v in sets.items()}
     print("dev %(dev)d test %(test)d official %(official)d" % n)
     for head, ref_run, ref_t in (("comma", "round3-base", (0.9, 0.9)), ("form", "round5-base", 0.9)):
-        table = build(data, head, max_models)
+        if head not in heads:
+            continue
+        table = build(data, head, max_models, must)
         rows, (ref_dev, ref_off) = select(data, table, ((ref_run,), "min"), ref_t)
         print("\n=== %s: reference %s at %s: dev tp/fp %s, official fp %d ===" % (head, ref_run, ref_t, ref_dev, ref_off))
         best = [r for r in rows if r[7]]

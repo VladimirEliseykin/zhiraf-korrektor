@@ -52,7 +52,8 @@ def test_strict_level_shows_only_in_strict_mode():
 
 def test_start_resumes_in_the_middle_of_a_stage(models_dir):
     seen = [(stage, i) for stage, i, _ in checker(models_dir).stream(SENTENCES, start=("forms", 2))]
-    assert seen == [("forms", 2), ("forms", 3)] + [("sage", i) for i in range(len(SENTENCES))]
+    assert seen == [("forms", 2), ("forms", 3)] + [("spell", i) for i in range(len(SENTENCES))] \
+        + [("sage", i) for i in range(len(SENTENCES))]
 
 
 def test_skipped_stages_load_no_model(models_dir):

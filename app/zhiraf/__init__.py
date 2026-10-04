@@ -14,7 +14,7 @@ if ENGINE_DIR not in sys.path:
 
 
 def models_dir():
-    """Folder with sage/, commas/, forms/ and vocab.tsv."""
+    """Folder with sage/, commas/, forms/, spell/ and vocab.tsv."""
     override = os.environ.get("ZHIRAF_MODELS")
     if override:
         return override
@@ -27,7 +27,7 @@ def missing_models(folder):
     """A message in Russian naming the first thing missing in the models folder, or None if it is complete."""
     if not os.path.isdir(folder):
         return "Не найдена папка с моделями: %s." % folder
-    for name, is_dir in (("vocab.tsv", False), ("sage", True), ("commas", True), ("forms", True)):
+    for name, is_dir in (("vocab.tsv", False), ("sage", True), ("commas", True), ("forms", True), ("spell", True)):
         path = os.path.join(folder, name)
         if not (os.path.isdir(path) if is_dir else os.path.isfile(path)):
             what = "папка «%s»" % name if is_dir else "файл «%s»" % name

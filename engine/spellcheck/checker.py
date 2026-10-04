@@ -37,8 +37,12 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # Measured end to end, "mean" >= 0.3 gave highlighted 18% / false check 2.6 per 100 (budget 2.2): not worth it, so
 # the shipped setting is the pure agreement band (min >= 0.2: 17% / 2.1); the hybrid stays available for retuning.
 CHECK_COMBINE = {}
-# Forms: no ensemble beat R5 alone on dev (best 14 / 1 against 13 / 1 and fewer), so forms stay single-model;
-# the *_ENS form thresholds only keep the stage consistent if a second forms model is ever added.
+# Forms (train/ensemble_eval.py, right / false form edits on dev at "error", clean official false alarms in brackets):
+#   R5 alone 0.9: 14 / 1 (1);  R5 + base-cased-forms min 0.8: 16 / 2 (1), min 0.9: 12 / 1 (0);
+#   R5 + base-cased-spell (its forms head) min 0.9: 9 / 1 (0), 0.8: 14 / 3 (2); R5 + both min 0.8: 14 / 2 (0).
+#   The spell model alone is worse than R5 (0.95: 5 / 4), so it is no member of the forms ensemble: it has its own
+#   "spell" stage. R5 + base-cased-forms (min 0.8) would add about 2 right finds on dev (pooled gold 38 / 7 against
+#   33 / 10) for one more model pass and ~0.7 GB; it is not shipped (disk budget), forms stay single-model.
 # The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
 # missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
 # those is at least as precise as one model alone, and nothing about two models was measured.
@@ -313,6 +317,7 @@ class Checker:
             "sage": lambda: sage.Sage(os.path.join(models_dir, "sage"), threads),
             "commas": [self._tagger_factory(f) for f in model_folders(models_dir, "commas")],
             "forms": [self._tagger_factory(f) for f in model_folders(models_dir, "forms")],
+            "spell": [self._tagger_factory(f) for f in model_folders(models_dir, "spell")[:1]],
         }
 
     def _tagger_factory(self, folder):
@@ -355,6 +360,12 @@ class Checker:
             return lambda i, body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
         made = self.factories[stage]
         makers = list(made) if isinstance(made, (list, tuple)) else [made]
+        if stage == "spell":
+            # the spelling head is a stage of its own: its model's comma and form heads were measured worse than the
+            # commas / forms models (forms: R5 14 / 1 on dev, this model alone 5 / 4 at its best sure threshold, and
+            # inside the forms ensemble it only lowers the finds), so no ensemble member: raw predictions, one model
+            model = makers[-1]()
+            return lambda i, body: spell_findings(body, model.predict(body))
         if len(makers) > 1:
             validate_combiners()
         parts = self._earlier_passes(stage, makers, prepared, first, should_stop, on_step) if len(makers) > 1 else []
@@ -376,14 +387,11 @@ class Checker:
 
         def check(i, body):
             preds = model.predict(body)
-            # the spelling head rides on whichever model has it (the last one of the stage); for the others this
-            # adds nothing, and the ensemble combination below keeps comma/form probabilities only
-            spelled = spell_findings(body, preds)
             if parts:
                 preds = combine_predictions([part[i] for part in parts] + [compact(preds)], how, check_how)
                 for part in parts:
                     part[i] = None  # a sentence is combined once: free its earlier predictions
-            return to_findings(body, preds) + spelled
+            return to_findings(body, preds)
         return check
 
     def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None, on_step=None):
