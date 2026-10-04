@@ -10,8 +10,9 @@ from xml.sax.saxutils import escape
 
 from lxml import etree
 
-from .model import Document, DocumentError, Paragraph, Span
-from .slots import FixedSlot, Slot
+from .model import Document, DocumentError, Paragraph, SaveReport, Span, group_by_paragraph
+from .package import read_package, write_package
+from .slots import FixedSlot, Slot, apply_to_slots
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
@@ -271,3 +272,43 @@ def write_docx_package(path, body_xml, styles_xml=None, extra=None):
 def plain_paragraphs_xml(texts):
     """w:p elements for plain paragraphs (used when a .doc can only be saved as a new .docx)."""
     return "".join('<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>' % escape(t) for t in texts)
+
+
+def _parse_xml_safe(xml_bytes, filename):
+    """Parse XML bytes with DOCTYPE refusal and error wrapping (used by load_package and save_docx)."""
+    try:
+        # Check for DOCTYPE which enables entity attacks (byte check first, fast path)
+        if b"<!DOCTYPE" in xml_bytes:
+            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(filename))
+
+        # Parse document
+        root = etree.fromstring(xml_bytes, PARSER)
+
+        # Check for DOCTYPE in parsed tree (catches UTF-16 and other encodings)
+        # docinfo.doctype is empty string for normal docs, non-empty for docs with DOCTYPE
+        if root.getroottree().docinfo.doctype:
+            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(filename))
+
+        return root
+    except DocumentError:
+        raise
+    except (etree.XMLSyntaxError, ValueError, RuntimeError, NotImplementedError, EOFError, RecursionError):
+        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(filename))
+
+
+def save_docx(doc, replacements, dst):
+    """Copy the original package; only characters of the fixes change in word/document.xml."""
+    infos, blobs = read_package(doc.path)
+    root = _parse_xml_safe(blobs[DOCUMENT_XML], doc.path)
+    paragraphs = [p for p, _ in iter_paragraphs(root.find(q("body")))]
+    applied, skipped = 0, []
+    for index, reps in group_by_paragraph(replacements).items():
+        slots, _ = paragraph_slots(paragraphs[index])
+        for r in sorted(reps, key=lambda r: (r.start, r.end), reverse=True):
+            if apply_to_slots(slots, r.start, r.end, r.text):
+                applied += 1
+            else:
+                skipped.append(r)
+    blobs[DOCUMENT_XML] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    write_package(dst, infos, blobs)
+    return SaveReport(dst, applied, sorted(skipped, key=lambda r: (r.paragraph, r.start)))

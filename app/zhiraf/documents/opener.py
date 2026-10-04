@@ -6,7 +6,7 @@ from . import docx_format, txt_format
 from .model import DocumentError, UnsupportedFormat, corrected_path
 
 READERS = {".txt": txt_format.read_txt, ".docx": docx_format.read_docx}
-SAVERS = {"txt": txt_format.save_txt}
+SAVERS = {"txt": txt_format.save_txt, "docx": docx_format.save_docx}
 
 
 def open_document(path):
