@@ -2,11 +2,13 @@
 import os
 import shutil
 
-from . import docx_format, odt_format, txt_format
+from . import doc_format, docx_format, odt_format, txt_format
 from .model import DocumentError, UnsupportedFormat, corrected_path
 
-READERS = {".txt": txt_format.read_txt, ".docx": docx_format.read_docx, ".odt": odt_format.read_odt}
-SAVERS = {"txt": txt_format.save_txt, "docx": docx_format.save_docx, "odt": odt_format.save_odt}
+READERS = {".txt": txt_format.read_txt, ".docx": docx_format.read_docx, ".odt": odt_format.read_odt,
+           ".doc": doc_format.open_doc}
+SAVERS = {"txt": txt_format.save_txt, "docx": docx_format.save_docx, "odt": odt_format.save_odt,
+          "doc": doc_format.save_doc}
 
 
 def open_document(path):

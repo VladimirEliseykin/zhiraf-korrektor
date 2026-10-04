@@ -5,11 +5,18 @@ formatting. Without them only the text can be read: extract_doc_text follows the
 binary format ([MS-DOC]: FIB -> Clx -> PlcPcd) and keeps the visible text of the main document.
 """
 import os
+import pathlib
+import shutil
 import struct
+import subprocess
+import sys
+import tempfile
 
 import olefile
 
-from .model import DocumentError
+from .. import storage
+from .docx_format import plain_paragraphs_xml, read_docx, save_docx, write_docx_package
+from .model import Document, DocumentError, Paragraph, SaveReport, Span, apply_replacements, group_by_paragraph
 
 FIB_WIDENT, FIB_FLAGS, FIB_CCP_TEXT, FIB_FC_CLX = 0x0000, 0x000A, 0x004C, 0x01A2
 WIDENT_WORD97 = 0xA5EC
@@ -104,3 +111,167 @@ def extract_doc_text(path):
         raise
     except Exception:
         raise _fail(path, "файл повреждён")
+
+
+NO_OFFICE_NOTICE = ("На компьютере нет Word и LibreOffice: оформление этого .doc сохранить не получится, "
+                    "исправленная версия будет сохранена как .docx.")
+WD_FORMAT_DOC, WD_FORMAT_DOCX = 0, 16
+
+
+class ConversionError(Exception):
+    pass
+
+
+def _no_window():
+    return {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # CREATE_NO_WINDOW
+
+
+class LibreOffice:
+    name = "LibreOffice"
+
+    def __init__(self, soffice):
+        self.soffice = soffice
+
+    def _convert(self, src, target, outdir):
+        profile = tempfile.mkdtemp(dir=storage.tmp_dir())  # never touch a LibreOffice the user has open
+        cmd = [self.soffice, "--headless", "--norestore", "--nologo",
+               "-env:UserInstallation=" + pathlib.Path(profile).as_uri(), "--convert-to", target, "--outdir", outdir, src]
+        try:
+            subprocess.run(cmd, check=True, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           **_no_window())
+        except (subprocess.SubprocessError, OSError) as e:
+            raise ConversionError(type(e).__name__)
+        finally:
+            shutil.rmtree(profile, ignore_errors=True)
+        out = os.path.join(outdir, os.path.splitext(os.path.basename(src))[0] + "." + target.split(":")[0])
+        if not os.path.exists(out):
+            raise ConversionError("no output")
+        return out
+
+    def to_docx(self, src, outdir):
+        return self._convert(src, "docx", outdir)
+
+    def to_doc(self, src_docx, dst):
+        outdir = tempfile.mkdtemp(dir=storage.tmp_dir())
+        try:
+            shutil.move(self._convert(src_docx, "doc:MS Word 97", outdir), dst)
+        finally:
+            shutil.rmtree(outdir, ignore_errors=True)
+
+
+class Word:
+    """Microsoft Word through COM, invisible to the user."""
+    name = "Microsoft Word"
+
+    def _save_as(self, src, dst, file_format):
+        try:
+            import comtypes.client
+            word = comtypes.client.CreateObject("Word.Application")
+        except Exception as e:  # COM errors are many and version-specific
+            raise ConversionError(type(e).__name__)
+        try:
+            word.Visible = False
+            word.DisplayAlerts = 0
+            document = word.Documents.Open(os.path.abspath(src), False, True, False)  # no prompts, read-only, not in recent
+            try:
+                try:
+                    document.SaveAs2(os.path.abspath(dst), file_format)
+                except AttributeError:
+                    document.SaveAs(os.path.abspath(dst), file_format)  # Word 2007
+            finally:
+                document.Close(False)
+        except ConversionError:
+            raise
+        except Exception as e:
+            raise ConversionError(type(e).__name__)
+        finally:
+            word.Quit()
+
+    def to_docx(self, src, outdir):
+        dst = os.path.join(outdir, os.path.splitext(os.path.basename(src))[0] + ".docx")
+        self._save_as(src, dst, WD_FORMAT_DOCX)
+        return dst
+
+    def to_doc(self, src_docx, dst):
+        self._save_as(src_docx, dst, WD_FORMAT_DOC)
+
+
+def _word_installed():
+    if sys.platform != "win32":
+        return False
+    import winreg
+    try:
+        winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
+        return True
+    except OSError:
+        return False
+
+
+def _installed_soffice():
+    if sys.platform != "win32":
+        return None
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramW6432")):
+        for folder in ("LibreOffice", "LibreOffice 7", "LibreOffice 6", "OpenOffice 4", "OpenOffice.org 3"):
+            exe = os.path.join(base or "", folder, "program", "soffice.exe")
+            if base and os.path.exists(exe):
+                return exe
+    return None
+
+
+def find_converter():
+    """Word first (best fidelity), then LibreOffice; None when neither is installed."""
+    if _word_installed():
+        return Word()
+    soffice = shutil.which("soffice") or _installed_soffice()
+    return LibreOffice(soffice) if soffice else None
+
+
+def open_doc(path, converter="auto"):
+    if converter == "auto":
+        converter = find_converter()
+    if converter is None:
+        texts = extract_doc_text(path)
+        doc = Document([Paragraph([Span(t)]) for t in texts], kind="doc", path=path, editable=False,
+                       saved_as="docx", notice=NO_OFFICE_NOTICE)
+        doc.source = {"text_only": True}
+        return doc
+    tmpdir = tempfile.mkdtemp(dir=storage.tmp_dir())
+    try:
+        docx = converter.to_docx(path, tmpdir)
+        inner = read_docx(docx)
+    except (ConversionError, DocumentError):
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise DocumentError("Не удалось открыть «%s» через %s. Попробуйте пересохранить его как .docx."
+                            % (os.path.basename(path), converter.name))
+    except BaseException:  # OSError, Ctrl+C...: the temp copy of a secret document must not stay
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+    doc = Document(inner.paragraphs, kind="doc", path=path, editable=False, saved_as="doc")
+    doc.source = {"docx": docx, "converter": converter, "tmpdir": tmpdir}
+    return doc
+
+
+def save_doc(doc, replacements, dst):
+    if doc.source.get("text_only"):
+        groups = group_by_paragraph(replacements)
+        texts = [apply_replacements(p.text, groups.get(i, [])) for i, p in enumerate(doc.paragraphs)]
+        if not dst.lower().endswith(".docx"):
+            dst = os.path.splitext(dst)[0] + ".docx"  # never a file named .doc without a real .doc inside
+        write_docx_package(dst, plain_paragraphs_xml(texts))
+        return SaveReport(dst, len(replacements))
+    inner = Document(doc.paragraphs, kind="docx", path=doc.source["docx"])
+    fixed = os.path.join(doc.source["tmpdir"], "исправлено.docx")
+    try:
+        report = save_docx(inner, replacements, fixed)
+        if dst.lower().endswith(".docx"):
+            shutil.copyfile(fixed, dst)
+        else:
+            try:
+                doc.source["converter"].to_doc(fixed, dst)
+            except ConversionError:
+                raise DocumentError("Не удалось сохранить «%s» через %s. Сохраните как .docx."
+                                    % (os.path.basename(dst), doc.source["converter"].name))
+    finally:
+        if os.path.exists(fixed):
+            os.remove(fixed)
+    return SaveReport(dst, report.applied, report.skipped)
