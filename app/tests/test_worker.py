@@ -57,3 +57,24 @@ def test_silent_death_is_noticed(models_dir):
         job.poll(timeout=0.2)
     job.close()
     assert job.finished and job.error[0] == "crash"
+
+
+def test_close_on_never_started_job_does_not_raise(models_dir):
+    job = CheckJob(models_dir, SENTENCES, factories="fakes:make_factories")
+    job.close()
+
+
+def test_crash_text_has_class_but_not_message(models_dir):
+    job = CheckJob(models_dir, SENTENCES, factories="fakes:make_broken_factories")
+    run(job)
+    assert "RuntimeError" in job.error[1]
+    assert "model files are missing" not in job.error[1]
+
+
+def test_close_on_running_job_is_fast(models_dir):
+    job = CheckJob(models_dir, SENTENCES * 20, factories="fakes:make_slow_factories")
+    job.start()
+    job.poll(timeout=1.0)
+    began = time.monotonic()
+    job.close()
+    assert time.monotonic() - began < 2.0
