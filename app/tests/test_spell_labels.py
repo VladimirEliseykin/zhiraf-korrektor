@@ -56,6 +56,14 @@ def test_flags_off_reproduce_corrupt_exactly():
             assert a.getstate() == b.getstate()  # the generator is not touched: later sentences are the same
 
 
+def test_decimal_comma_is_never_dropped():
+    # "27,5" is two words for words_of; dropping its comma glued them into "275" and the example was lost
+    text = "Доля выросла до 27,5 процента за год работы"
+    for seed in range(200):
+        c, comma, form = cr.corrupt(text, random.Random(seed), p_clean=0.0, max_edits=3, p_form=0.0)
+        assert "27,5" in c and len(words_of(c)) == len(comma) == len(form)
+
+
 def test_restore_without_spell_labels_is_unchanged():
     text = "Мы пришли рано мы ушли"
     comma = [cr.COMMA_KEEP, cr.COMMA_KEEP, cr.COMMA_ADD, cr.COMMA_KEEP, cr.COMMA_KEEP]

@@ -175,7 +175,9 @@ def corrupt(text, rng, p_clean=0.25, max_edits=3, p_single=0.0, p_form=0.45, pla
     drop_comma = set()    # word index whose following comma is removed
     add_comma = set()     # word index after which a spurious comma is inserted
     form_cands = [(i, form_weight(text, ms, i) if placement else 1.0) for i in range(n)]
-    drop_cands = [(i, comma_drop_weight(text, ms, i) if placement else 1.0) for i in range(n - 1) if comma_after(text, ms[i])]
+    # a comma glued to the next word is a decimal one ("27,5"): dropping it merges two words into one
+    drop_cands = [(i, comma_drop_weight(text, ms, i) if placement else 1.0) for i in range(n - 1)
+                  if comma_after(text, ms[i]) and text[ms[i].end() + 1:ms[i].end() + 2] != ms[i + 1].group(0)[:1]]
     add_cands = []
     for i in range(n - 1):
         w = ms[i].group(0)
