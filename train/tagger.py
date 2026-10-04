@@ -317,7 +317,8 @@ def decode(logits, form_labels, word_pos):
 class EditTagger:
     """Inference wrapper: returns per-word probabilities for comma, form and (if trained) spelling actions."""
 
-    def __init__(self, run_dir, epoch=None):
+    def __init__(self, run_dir, epoch=None, dev=None):
+        self.dev = torch.device(dev) if dev else torch.device("cpu")
         meta = json.load(open(os.path.join(run_dir, "labels.json"), encoding="utf-8"))
         self.form_labels = meta["form_labels"]
         self.tokenizer = AutoTokenizer.from_pretrained(run_dir)
@@ -334,7 +335,7 @@ class EditTagger:
         self.model = TaggerModel(meta["base"], len(self.form_labels), len(meta.get("spell_labels", ())))
         name = "model.pt" if epoch is None else "model-epoch%d.pt" % epoch
         self.model.load_state_dict(torch.load(os.path.join(run_dir, name), map_location="cpu", weights_only=True))
-        self.model.eval()
+        self.model.to(self.dev).eval()
 
     def predict(self, text):
         ids, _, _, word_pos, _ = encode(self.tokenizer, text)
@@ -345,7 +346,9 @@ class EditTagger:
             logits = [torch.from_numpy(o) for o in outs]
         else:
             with torch.inference_mode():
-                logits = self.model(torch.tensor([ids]), torch.ones((1, len(ids)), dtype=torch.long))
+                logits = self.model(torch.tensor([ids], device=self.dev),
+                                    torch.ones((1, len(ids)), dtype=torch.long, device=self.dev))
+                logits = [x.cpu() for x in logits]
         return decode(logits, self.form_labels, word_pos)
 
 

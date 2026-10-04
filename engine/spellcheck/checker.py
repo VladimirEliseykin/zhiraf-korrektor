@@ -179,8 +179,10 @@ def spell_fix(body, ms, i, label, quotes):
     return None
 
 
-def spell_findings(body, preds):
+def spell_findings(body, preds, check=CHECK_SPELL, sure_lower=SURE_LOWER):
     """Joined/split/hyphenated words and wrong capitals from the spelling head; nothing without the head.
+
+    check / sure_lower are the lowest probabilities of any label / of LOWER (train/spell_eval.py sweeps them).
 
     The fix is built from the label: JOIN/HYPHEN replace the two words by their joined or hyphenated
     form, SPLIT puts a space after "не", LOWER/UPPER change the first letter."""
@@ -194,7 +196,7 @@ def spell_findings(body, preds):
         if any(a < m.start() < b for a, b in quotes) or protected(word):
             continue
         label, prob = max(((k, v) for k, v in p["spell"].items() if k != "KEEP"), key=lambda kv: kv[1])
-        if prob < CHECK_SPELL or label == "LOWER" and prob < SURE_LOWER:
+        if prob < check or label == "LOWER" and prob < sure_lower:
             continue
         fix = spell_fix(body, ms, i, label, quotes)
         if fix is None:
@@ -208,7 +210,7 @@ def spell_findings(body, preds):
                 continue
             level = "check"
         out.append({"start": fix[0], "end": fix[1], "level": level, "rule": "MODEL_SPELL", "fix": fix[2],
-                    "message": SPELL_MESSAGES[label][level != "error"], "p": round(prob, 3)})
+                    "message": SPELL_MESSAGES[label][level != "error"], "p": round(prob, 3), "label": label})
     return out
 
 

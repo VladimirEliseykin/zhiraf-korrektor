@@ -455,3 +455,11 @@ def test_ne_with_adjectives_and_participles_is_corrupted_half_as_often():
     c = "Отчеты по незакрытых договорам были сданы вовремя."
     cut = cr.prefix_split("незакрытых")
     assert cut == (2, 2.5)
+
+
+def test_findings_carry_their_label_and_thresholds_can_be_swept():
+    body = "Налоговая Газета направила письмо."
+    preds = preds_for(body, {1: ("LOWER", 0.8)})
+    assert spell_findings(body, preds) == []                                  # below SURE_LOWER
+    found = spell_findings(body, preds, check=0.5, sure_lower=0.5)            # the evaluation sweeps both
+    assert [f["label"] for f in found] == ["LOWER"]
