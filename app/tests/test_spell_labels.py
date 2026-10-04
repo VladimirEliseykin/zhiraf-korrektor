@@ -147,10 +147,10 @@ def test_ne_with_a_noun_or_adjective_is_not_joined():
 
 
 def test_lower_capitalises_a_common_noun_after_a_capitalised_word():
-    c, _, _, spell = make("Налоговая служба направила письмо.", "lower", 1)
-    assert ("Служба", "LOWER") in labelled(c, spell)
+    c, _, _, spell = make("Налоговая газета направила письмо.", "lower", 1)
+    assert ("Письмо", "LOWER") in labelled(c, spell) or ("Газета", "LOWER") in labelled(c, spell)
     for seed in range(8):
-        c, _, _, spell = make("Налоговая служба направила письмо.", "lower", seed)
+        c, _, _, spell = make("Налоговая газета направила письмо.", "lower", seed)
         assert not spell[0] == "LOWER"  # the first word of a sentence is never a LOWER target
 
 
@@ -220,7 +220,9 @@ def one(body, labels):
 def test_join_finding_replaces_both_words():
     body = "Он ушёл по этому пути, но не по этому."
     assert one("Мы остались по этому не стали ждать.", {2: ("JOIN", 0.95)}) == [
-        ("по этому", "поэтому", "error", "Слово пишется слитно")]
+        ("по этому", "поэтому", "check", "Возможно, слово пишется слитно")]  # valid apart elsewhere: never sure
+    assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.95)}) == [
+        ("сверх доходности", "сверхдоходности", "error", "Слово пишется слитно")]
     assert one("Мы остались по этому не стали ждать.", {2: ("JOIN", 0.5)})[0][2:] == ("check", "Возможно, слово пишется слитно")
     assert one(body, {2: ("JOIN", CHECK_SPELL - 0.01)}) == []
     assert SURE_SPELL == 0.9
@@ -237,9 +239,9 @@ def test_split_finding_puts_a_space_after_ne():
 
 
 def test_case_findings():
-    assert one("Налоговая Служба направила письмо.", {1: ("LOWER", 0.95)}) == [
-        ("Служба", "служба", "error", "Слово пишется с маленькой буквы")]
-    assert one("Налоговая Служба направила письмо.", {0: ("LOWER", 0.95)}) == []  # sentence start
+    assert one("Налоговая Газета направила письмо.", {1: ("LOWER", 0.98)}) == [
+        ("Газета", "газета", "error", "Слово пишется с маленькой буквы")]
+    assert one("Налоговая Газета направила письмо.", {0: ("LOWER", 0.98)}) == []  # sentence start
     assert one("Директор иван Петров ушёл.", {1: ("UPPER", 0.95)}) == [
         ("иван", "Иван", "error", "Слово пишется с большой буквы")]
     assert one("Мы видели город москва.", {3: ("UPPER", 0.95)})[0][1] == "Москва"
@@ -284,13 +286,13 @@ def test_spell_findings_merge_with_other_findings():
 
 
 def test_stage_of_the_model_with_the_head_reports_the_spelling(models_dir):
-    spell = {"этому": ("KEEP", 1.0), "по": ("JOIN", 0.95)}
+    spell = {"доходности": ("KEEP", 1.0), "сверх": ("JOIN", 0.95)}
     factories = {"commas": lambda: FakeTagger(spell=spell), "forms": lambda: FakeTagger(), "sage": lambda: None}
     checker = Checker(models_dir, factories=factories)
     found = {}
-    for stage, i, items in checker.stream(["Мы остались по этому не стали ждать."], stages=("commas", "forms")):
+    for stage, i, items in checker.stream(["Мы получили сверх доходности от акций."], stages=("commas", "forms")):
         found[stage] = [(f["rule"], f["fix"], f["level"]) for f in items]
-    assert found["commas"] == [("MODEL_SPELL", "поэтому", "error")]
+    assert found["commas"] == [("MODEL_SPELL", "сверхдоходности", "error")]
     assert found["forms"] == []
 
 
@@ -354,3 +356,102 @@ def test_product_tagger_predicts_with_and_without_the_head(with_head):
     assert ("spell" in res[1]) == with_head
     if with_head:
         assert res[1]["spell"]["JOIN"] > 0.99 and res[0]["spell"]["KEEP"] > 0.9
+
+
+# ---- review fixes: title nouns, ambiguous pairs, symmetric guards ---------------------------------------
+
+def capital_file_lemmas():
+    path = os.path.join(zhiraf.ENGINE_DIR, "spellcheck", "capital_lemmas.txt")
+    with open(path, encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+
+
+TITLE_NOUNS = ["министерство", "служба", "комитет", "департамент", "управление", "банк", "комиссия", "агентство",
+               "закон", "финансы", "центр", "фонд", "институт", "федерация"]
+
+
+def test_title_nouns_are_in_the_shipped_list_and_it_is_the_only_copy():
+    from spellcheck import checker
+    lemmas = capital_file_lemmas()
+    assert set(TITLE_NOUNS) <= lemmas and len(lemmas) > 1000
+    assert checker.CAPITAL_LEMMAS == lemmas and cr.CAPITAL_LEMMAS == lemmas
+    assert "федерация" not in open(os.path.join(TRAIN, "corrupt.py"), encoding="utf-8").read()
+
+
+def test_lower_never_capitalises_a_title_noun():
+    text = "Мы отправили письмо в министерство и обратились в комитет по закону для проверки."
+    lemmas = capital_file_lemmas()
+    seen = set()
+    for seed in range(60):
+        c, _, _, spell = make(text, "lower", seed)
+        for word, label in labelled(c, spell):
+            assert label == "LOWER"
+            seen.add(word)
+    assert seen and not {w.lower() for w in seen} & {"министерство", "комитет", "закону", "закон"}
+    assert all(not any(w.lower() == t for t in lemmas) for w in seen)
+
+
+def test_lower_places_carry_no_role_or_capitalised_neighbour_weight():
+    c = "Налоговая газета опубликовала письмо директора совета."
+    cands = cr.spell_candidates(c, words_of(c), [cr.COMMA_KEEP] * 7, [cr.FORM_KEEP] * 7)["lower"]
+    assert cands and {w for _, w, _ in cands} == {1.0}
+
+
+def test_lower_finding_skips_title_nouns_whatever_the_probability():
+    body = "Мы отправили письмо в Министерство юстиции."
+    assert one(body, {4: ("LOWER", 0.999)}) == []
+    assert one("Мы отправили письмо в Комитет по делам.", {4: ("LOWER", 0.999)}) == []
+
+
+def test_lower_is_sure_or_nothing():
+    body = "Налоговая Газета направила письмо."
+    assert one(body, {1: ("LOWER", 0.96)}) == []
+    assert one(body, {1: ("LOWER", 0.5)}) == []
+    assert one(body, {1: ("LOWER", 0.98)}) == [("Газета", "газета", "error", "Слово пишется с маленькой буквы")]
+
+
+def test_join_of_ne_needs_a_known_joined_word():
+    assert one("Мы решили не делать этого.", {2: ("JOIN", 0.99)}) == []       # "неделать" is no word
+    assert one("Отчеты по не закрытых договорам сданы.", {2: ("JOIN", 0.99)})[0][1] == "незакрытых"
+
+
+@pytest.mark.parametrize("body", ["Он сделал так же как и мы.", "Это то же самое для нас.", "Он ответил то же же.",
+                                  "Он сделал так же же как мы."])
+def test_join_skips_a_valid_pair_before_kak_zhe_samoe(body):
+    i = [m.group(0) for m in words_of(body)].index("так" if "так" in body else "то")
+    assert one(body, {i: ("JOIN", 0.99)}) == []
+
+
+@pytest.mark.parametrize("body,label_at,fix", [
+    ("Он ответил так же быстро.", 2, "также"),
+    ("Мы остались по этому не стали ждать.", 2, "поэтому"),
+    ("Она сказала что бы мы ушли.", 2, "чтобы"),
+    ("Мы заплатим на счет отдела.", 2, "насчет"),
+    ("Они пришли за то остались.", 2, "зато"),
+])
+def test_join_of_an_ambiguous_pair_is_never_sure(body, label_at, fix):
+    found = one(body, {label_at: ("JOIN", 0.999)})
+    assert len(found) == 1 and found[0][1] == fix and found[0][2] == "check"
+
+
+def test_join_of_an_unambiguous_pair_stays_sure():
+    assert one("Компания получила сверх доходности от акций.", {2: ("JOIN", 0.95)})[0][1:3] == ("сверхдоходности", "error")
+
+
+def test_hyphen_needs_the_same_dictionary_guard_as_the_generator():
+    assert one("Мы приехали на заво да утром.", {3: ("HYPHEN", 0.99)}) == []  # "завода" is a word
+    assert one("Это сделано из за ошибки.", {2: ("HYPHEN", 0.99)})[0][1] == "из-за"
+
+
+def test_corruption_keeps_valid_pairs_before_kak_samoe_zhe_and_ni():
+    for text, joined in (("Он пришёл также как и вы вчера.", "также"), ("Они сделали тоже самое для нас.", "тоже"),
+                         ("Он решил тоже же как мы вчера.", "тоже"), ("Он сделал это чтобы ни один не ушёл.", "чтобы")):
+        for seed in range(40):
+            c, _, _, spell = make(text, "join", seed)
+            assert joined in c, (c, seed)
+
+
+def test_ne_with_adjectives_and_participles_is_corrupted_half_as_often():
+    c = "Отчеты по незакрытых договорам были сданы вовремя."
+    cut = cr.prefix_split("незакрытых")
+    assert cut == (2, 2.5)

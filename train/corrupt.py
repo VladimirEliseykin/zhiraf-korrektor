@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "engine"))
 from spellcheck.guards import BIBLIOGRAPHY, LIST_MARKER, protected, quoted_spans  # noqa: E402
 from spellcheck.morph import morph  # noqa: E402
+from spellcheck.spelling import CAPITAL_LEMMAS, JOINED_TABLE, pair_is_meant_apart  # noqa: E402,F401
 from spellcheck.text import WORD, inflect, words_of  # noqa: E402,F401
 
 CASES = ("nomn", "gent", "datv", "accs", "ablt", "loct")
@@ -268,16 +269,8 @@ SPLIT_PREFIXES = (("не", 5), ("сверх", 1), ("меж", 1), ("само", 1)
                   ("средне", 1), ("высоко", 1), ("псевдо", 1), ("квази", 1))
 NE_POS = {"ADJF", "PRTF", "ADVB", "NOUN"}
 NE_STOP = {"некоторый", "некий", "несколько", "нечто", "некто", "нельзя", "небо", "неделя", "невеста"}
-# fixed spellings that are often written apart: joined form -> length of its first part
-JOINED_TABLE = {"поэтому": 2, "также": 3, "тоже": 2, "чтобы": 3, "зато": 2, "притом": 3, "причем": 3,
-                "причём": 3, "ввиду": 1, "вследствие": 1, "насчет": 2, "насчёт": 2, "навстречу": 2,
-                "затем": 2, "поскольку": 2, "несмотря": 2, "вместо": 1, "вроде": 1, "навсегда": 2,
-                "потому": 2, "незадолго": 2}
 HYPHEN_PARTICLES = {"то", "либо", "нибудь", "таки", "кое"}
 HYPHEN_PREFIXES = {"по", "во", "в", "из", "кое"}
-ROLE_NOUNS = {"директор", "министр", "президент", "председатель", "руководитель", "начальник", "управление",
-              "департамент", "правительство", "служба", "комитет", "министерство", "агентство", "комиссия",
-              "закон", "кодекс", "постановление", "приказ"}
 GEO_MARKERS = {"город", "городе", "города", "г", "области", "республике", "республики", "районе", "краю"}
 NAME_GRAMMEMES = ("Name", "Surn", "Patr")
 NOT_COMMON = ("Name", "Surn", "Patr", "Geox", "Orgn", "Abbr", "Trad")
@@ -303,6 +296,8 @@ def prefix_split(word):
             continue
         if prefix == "не" and (whole.tag.POS not in NE_POS or whole.normal_form in NE_STOP):
             continue
+        if prefix == "не" and whole.tag.POS in ("ADJF", "PRTF"):
+            weight /= 2  # "не закрытых" is often right apart ("не закрытых договоров"): half the weight
         return len(prefix), weight
     return None
 
@@ -340,7 +335,11 @@ def spell_candidates(c, ms, comma, form):
             continue
         low = w.lower()
         if low in JOINED_TABLE:
-            cands["join"].append((i, 2.0, JOINED_TABLE[low]))
+            cut = JOINED_TABLE[low]
+            nxt = ms[i + 1].group(0).lower() if i + 1 < len(ms) and gap(i) == " " else ""
+            # "так же как", "то же самое", "что бы ни" are the right spelling: the split would teach a false alarm
+            if not (pair_is_meant_apart(low[:cut], low[cut:], nxt) or low == "чтобы" and nxt == "ни"):
+                cands["join"].append((i, 2.0, cut))
         elif len(w) >= 6:
             cut = prefix_split(w)
             if cut:
@@ -357,13 +356,10 @@ def spell_candidates(c, ms, comma, form):
         if parse.score < 0.4:
             continue
         if w[0].islower() and i > 0 and len(w) >= 4 and parse.score >= 0.5 and parse.tag.POS == "NOUN" \
-                and not any(g in parse.tag for g in NOT_COMMON) and gap(i - 1) == " " and ms[i - 1].group(0)[:1].isalpha():
-            before = ms[i - 1].group(0)
-            # "Налоговая Служба": the capital that follows a capitalised word; a sentence-initial "В"/"При" is no such word
-            weight = 4.0 if before[:1].isupper() and before.lower() not in PREPS | CONJ else 1.0
-            if parse.normal_form in ROLE_NOUNS:
-                weight *= 3
-            cands["lower"].append((i, weight, None))
+                and not any(g in parse.tag for g in NOT_COMMON) and gap(i - 1) == " " and ms[i - 1].group(0)[:1].isalpha() \
+                and parse.normal_form not in CAPITAL_LEMMAS:
+            # title words ("Министерство", "Закон") are capitalised in official text: no LOWER place for them
+            cands["lower"].append((i, 1.0, None))
         elif w[0].isupper() and w[1:].islower():
             if i == first:
                 cands["upper"].append((i, 1.0, None))

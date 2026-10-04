@@ -13,7 +13,7 @@ import os
 from array import array
 import time
 
-from . import grammar_rules, rules, sage
+from . import grammar_rules, rules, sage, spelling
 from .stages import STAGE_COST, STAGES, model_folders  # noqa: F401  (re-exported)
 from .guards import BIBLIOGRAPHY, prepare, protected, quoted_spans
 from .morph import morph
@@ -47,6 +47,7 @@ ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
 SURE_SPELL, CHECK_SPELL = 0.9, 0.3  # spelling head (joined/split words, hyphens, capitals); not yet measured on gold
+SURE_LOWER = 0.97  # a wrong capital is the likeliest false alarm on official text: sure or nothing, no "check"
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
 
@@ -124,10 +125,9 @@ SPELL_MESSAGES = {
 }
 NOT_COMMON_NOUN = ("Name", "Surn", "Patr", "Geox", "Orgn", "Abbr", "Trad")
 NAME_LIKE = ("Name", "Surn", "Patr", "Geox")
-# common nouns that official language writes with a capital as part of a title ("Российская Федерация"):
-# the model must not lower them even when it is unsure about the context
-CAPITAL_LEMMAS = {"федерация", "республика", "конституция", "правительство", "президент", "дума", "собрание",
-                  "совет", "союз", "государство", "федерация", "кодекс", "палата", "суд"}
+# common nouns that official language writes with a capital as part of a title ("Министерство", "Закон"):
+# the model must not lower them even when it is sure (the list is measured on the clean corpus)
+CAPITAL_LEMMAS = spelling.CAPITAL_LEMMAS
 
 
 def spell_fix(body, ms, i, label, quotes):
@@ -141,7 +141,16 @@ def spell_fix(body, ms, i, label, quotes):
         second = nxt.group(0)
         if protected(second) or not second.isalpha() or not second[:1].islower() or any(a < nxt.start() < b for a, b in quotes):
             return None
-        return m.start(), nxt.end(), word + ("" if label == "JOIN" else "-") + second
+        joined = word + ("" if label == "JOIN" else "-") + second
+        if label == "HYPHEN" and morph.word_is_known((word + second).lower()):
+            return None  # "заво да" is "завода" split at a line break, not a compound (the generator has this guard too)
+        if label == "JOIN":
+            if word.lower() == "не" and not morph.word_is_known(joined.lower()):
+                return None  # "не делать" is not "неделать": "не" joins only where the result is a word
+            following = ms[i + 2].group(0) if i + 2 < len(ms) else None
+            if spelling.pair_is_meant_apart(word, second, following):
+                return None  # "так же как", "то же самое"
+        return m.start(), nxt.end(), joined
     if label == "SPLIT":
         rest = word[2:]
         if word[:2].lower() != "не" or len(rest) < 3 or not rest.isalpha() or morph.word_is_known(word.lower()):
@@ -185,12 +194,14 @@ def spell_findings(body, preds):
         if any(a < m.start() < b for a, b in quotes) or protected(word):
             continue
         label, prob = max(((k, v) for k, v in p["spell"].items() if k != "KEEP"), key=lambda kv: kv[1])
-        if prob < CHECK_SPELL:
+        if prob < CHECK_SPELL or label == "LOWER" and prob < SURE_LOWER:
             continue
         fix = spell_fix(body, ms, i, label, quotes)
         if fix is None:
             continue
-        level = "error" if prob >= SURE_SPELL else "check"
+        level = "error" if prob >= (SURE_LOWER if label == "LOWER" else SURE_SPELL) else "check"
+        if label == "JOIN" and i + 1 < len(ms) and spelling.is_ambiguous_pair(word, ms[i + 1].group(0)):
+            level = "check"  # valid apart in some context ("по этому вопросу"): never a sure error
         if label == "UPPER" and i == 0:
             # a list item continues the sentence in lowercase on purpose: only a whole sentence is sure
             if not body.rstrip().endswith((".", "!", "?")):
