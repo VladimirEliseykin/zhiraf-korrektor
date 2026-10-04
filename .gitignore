@@ -29,3 +29,11 @@ catalog-search*.html
 .superpowers/
 spike/lo-profile/
 spike/rupunct-*.json
+
+# private data: texts of real documents, gold sets and annotations made from them, VM answer file
+spike/docs-txt/
+spike/official-txt/
+spike/*.json
+spike/*.jsonl
+spike/*.js
+floppy/autounattend.xml
