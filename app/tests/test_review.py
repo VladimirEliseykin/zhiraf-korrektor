@@ -170,3 +170,26 @@ def test_many_marks_are_handled_fast():
     assert len(s.undo()) == 3000
     assert time.monotonic() - t < 1
     assert s.counts()["errors"] == 3000
+
+
+def test_ten_thousand_add_findings_calls_are_fast():
+    import time
+    paragraphs = ["слово " * 20] * 1000
+    s = ReviewSession(paragraphs)
+    began = time.monotonic()
+    for i in range(10000):
+        s.add_findings(i % 1000, 0, [f((i // 1000) * 6, (i // 1000) * 6 + 5, "x")])
+    assert time.monotonic() - began < 2.0
+    assert len(s.marks) == 10000
+    assert [(m.paragraph, m.start) for m in s.marks] == sorted((m.paragraph, m.start) for m in s.marks)
+
+
+def test_pop_removed_reports_marks_evicted_by_a_stronger_finding():
+    s = ReviewSession(["Так же сотрудники"])
+    weak = s.add_findings(0, 0, [f(0, 6, "Также", level="check", rule="MODEL_FORM")])
+    assert s.pop_removed() == []
+    strong = s.add_findings(0, 0, [f(0, 6, "Также", rule="RULE_TAKZHE")])
+    assert s.pop_removed() == weak and s.pop_removed() == []
+    assert s.marks == strong and s.current is strong[0]
+    s.add_findings(0, 0, [f(0, 6, "Также", level="check", rule="MODEL_FORM")])  # weaker: nothing removed
+    assert s.pop_removed() == []

@@ -4,6 +4,7 @@ Pure Python, no Qt: the window shows what this session says and calls its method
 Mark positions are kept in the coordinates of the ORIGINAL paragraph text (the text the check ran
 on); the current text is the original with the accepted fixes applied.
 """
+import bisect
 from dataclasses import dataclass
 from typing import Optional
 
@@ -70,12 +71,41 @@ class ReviewSession:
         self.current = None
         self._next_id = 1
         self._by_par = {}   # paragraph -> its marks sorted by _key (index over self.marks)
+        self._par_keys = {}  # paragraph -> the _key of each of those marks
+        self._keys = []     # the _key of each of self.marks
+        self._removed = []
         self._versions = {}
         # groups of ([(mark, previous status, previous applied), ...], word added to the dictionary or None)
         self._undo = []
 
     def version(self, paragraph):
         return self._versions.get(paragraph, 0)
+
+    def _insert(self, mark):
+        """Put the mark into self.marks and its paragraph list, both kept sorted by _key (no re-sorting)."""
+        key = _key(mark)
+        i = bisect.bisect_left(self._keys, key)
+        self._keys.insert(i, key)
+        self.marks.insert(i, mark)
+        local, local_keys = self._by_par.setdefault(mark.paragraph, []), self._par_keys.setdefault(mark.paragraph, [])
+        j = bisect.bisect_left(local_keys, key)
+        local_keys.insert(j, key)
+        local.insert(j, mark)
+
+    def _discard(self, mark):
+        key = _key(mark)
+        i = bisect.bisect_left(self._keys, key)
+        del self._keys[i]
+        del self.marks[i]
+        local_keys = self._par_keys[mark.paragraph]
+        j = bisect.bisect_left(local_keys, key)
+        del local_keys[j]
+        del self._by_par[mark.paragraph][j]
+
+    def pop_removed(self):
+        """Marks that add_findings removed (a stronger finding took their place) since the last call."""
+        removed, self._removed = self._removed, []
+        return removed
 
     # --- findings arriving from the check ---
 
@@ -103,13 +133,10 @@ class ReviewSession:
             for m in clash:
                 if self.current is m:
                     self.current = mark
-                self.marks.remove(m)
-                local.remove(m)
-            self.marks.append(mark)
-            local.append(mark)
-            local.sort(key=_key)
+                self._discard(m)
+                self._removed.append(m)
+            self._insert(mark)
             added.append(mark)
-        self.marks.sort(key=_key)
         if self.current is None:
             self.current = next((m for m in self.marks if m.status == OPEN), None)
         return added
@@ -258,8 +285,10 @@ class ReviewSession:
         self.originals[paragraph] = new_text
         self._versions[paragraph] = self.version(paragraph) + 1
         gone = self._by_par.pop(paragraph, [])
+        self._par_keys.pop(paragraph, None)
         gone_ids = {id(m) for m in gone}
         self.marks = [m for m in self.marks if m.paragraph != paragraph]
+        self._keys = [_key(m) for m in self.marks]
         undo = [([e for e in entries if id(e[0]) not in gone_ids], word) for entries, word in self._undo]
         self._undo = [(entries, word) for entries, word in undo if entries]
         if self.current is not None and id(self.current) in gone_ids:
