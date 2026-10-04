@@ -60,3 +60,41 @@ def test_unsupported_and_missing_files(tmp_path):
         opener.open_document(str(tmp_path / "картинка.png"))
     with pytest.raises(DocumentError):
         opener.open_document(str(tmp_path / "нет.txt"))
+
+
+def test_txt_utf16_round_trip_keeps_encoding(tmp_path):
+    src = tmp_path / "utf16.txt"
+    src.write_bytes("Текст на русском".encode("utf-16"))
+    doc = opener.open_document(str(src))
+    report = opener.save_document(doc, [])
+    assert open(report.path, "rb").read() == "Текст на русском".encode("utf-16")
+
+
+def test_bom_file_with_invalid_utf8_raises_error(tmp_path):
+    src = tmp_path / "invalid.txt"
+    # UTF-8 BOM followed by invalid UTF-8 bytes
+    src.write_bytes(b"\xef\xbb\xbf\xff\xfe")
+    with pytest.raises(DocumentError) as exc_info:
+        opener.open_document(str(src))
+    assert "неизвестная кодировка" in str(exc_info.value)
+
+
+def test_replacement_with_char_not_in_cp1251_raises_error(tmp_path):
+    src = tmp_path / "cp1251.txt"
+    src.write_bytes("Простой текст".encode("cp1251"))
+    doc = opener.open_document(str(src))
+    # Arrow character (→) is not in CP1251
+    with pytest.raises(DocumentError) as exc_info:
+        opener.save_document(doc, [Replacement(0, 0, 0, "→")])
+    assert "нельзя сохранить" in str(exc_info.value)
+    # Verify no output file or .part file remains
+    report_name = os.path.basename(str(tmp_path / "cp1251 (исправлено).txt"))
+    assert not (tmp_path / report_name).exists()
+    assert not (tmp_path / (report_name + ".part")).exists()
+
+
+def test_opening_directory_as_txt_raises_error(tmp_path):
+    dir_path = tmp_path / "x.txt"
+    dir_path.mkdir()
+    with pytest.raises(DocumentError):
+        opener.open_document(str(dir_path))

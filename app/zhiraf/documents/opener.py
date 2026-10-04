@@ -17,16 +17,30 @@ def open_document(path):
                                 % (ext or "без расширения"))
     if not os.path.exists(path):
         raise DocumentError("Файл не найден: %s" % path)
-    return reader(path)
+    try:
+        return reader(path)
+    except DocumentError:
+        raise
+    except OSError:
+        raise DocumentError("Не удалось открыть «%s»: нет доступа или файл занят другой программой." % os.path.basename(path))
 
 
 def save_document(doc, replacements, dst=None):
     dst = dst or corrected_path(doc.path, doc.saved_as)
     if doc.path and os.path.normcase(os.path.abspath(dst)) == os.path.normcase(os.path.abspath(doc.path)):
         raise DocumentError("Исходный документ не перезаписывается — выберите другое имя.")
+    # Check if dst exists and is the same file as doc.path
+    if dst and os.path.exists(dst) and doc.path and os.path.exists(doc.path):
+        try:
+            if os.path.samefile(dst, doc.path):
+                raise DocumentError("Исходный документ не перезаписывается — выберите другое имя.")
+        except OSError:
+            pass
     try:
         return SAVERS[doc.kind](doc, replacements, dst)
-    except PermissionError:
+    except DocumentError:
+        raise
+    except OSError:
         raise DocumentError("Не удалось сохранить «%s»: нет доступа или файл открыт в другой программе."
                             % os.path.basename(dst))
 
