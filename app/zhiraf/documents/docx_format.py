@@ -132,17 +132,6 @@ def _run_format(run):
     return _flag(rpr, "b"), _flag(rpr, "i"), _flag(rpr, "u")
 
 
-def _style_names(styles_xml):
-    names = {}
-    if styles_xml:
-        root = etree.fromstring(styles_xml, PARSER)
-        for style in root.iter(q("style")):
-            name = style.find(q("name"))
-            if style.get(q("styleId")) and name is not None:
-                names[style.get(q("styleId"))] = name.get(q("val"), "")
-    return names
-
-
 def _paragraph_style(p, names):
     ppr = p.find(q("pPr"))
     if ppr is None:
@@ -152,7 +141,7 @@ def _paragraph_style(p, names):
     name = names.get(style_id, style_id).strip()
     m = HEADING_NAME.match(name) or HEADING_NAME.match(style_id)
     if m:
-        return "h%d" % min(int(m.group(2)), 3)
+        return "h%d" % max(1, min(int(m.group(2)), 3))
     if name.lower() in ("title", "название"):
         return "title"
     if ppr.find(q("numPr")) is not None or name.lower().startswith(("list", "список")):
@@ -252,7 +241,9 @@ def write_docx_package(path, body_xml, styles_xml=None, extra=None):
 
 def plain_paragraphs_xml(texts):
     """w:p elements for plain paragraphs (used when a .doc can only be saved as a new .docx)."""
-    return "".join('<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>' % escape(t) for t in texts)
+    def flat(text):  # a tab or line break inside a w:t is not valid there: a space keeps the words apart
+        return text.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+    return "".join('<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>' % escape(flat(t)) for t in texts)
 
 
 def _parse_xml_safe(xml_bytes, filename):

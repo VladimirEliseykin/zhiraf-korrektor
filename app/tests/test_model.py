@@ -98,3 +98,72 @@ def test_opening_directory_as_txt_raises_error(tmp_path):
     dir_path.mkdir()
     with pytest.raises(DocumentError):
         opener.open_document(str(dir_path))
+
+
+def _txt(tmp_path, name="a.txt"):
+    path = tmp_path / name
+    path.write_text("Так же был\n", encoding="utf-8")
+    return str(path)
+
+
+def test_reader_failure_becomes_a_document_error(tmp_path, monkeypatch):
+    def broken(path):
+        raise RuntimeError("secret paragraph text")
+    monkeypatch.setitem(opener.READERS, ".txt", broken)
+    with pytest.raises(DocumentError) as e:
+        opener.open_document(_txt(tmp_path))
+    assert str(e.value) == "Не удалось открыть «a.txt»: файл повреждён."
+
+
+def test_reader_out_of_memory_becomes_a_document_error(tmp_path, monkeypatch):
+    def huge(path):
+        raise MemoryError()
+    monkeypatch.setitem(opener.READERS, ".txt", huge)
+    with pytest.raises(DocumentError) as e:
+        opener.open_document(_txt(tmp_path))
+    assert str(e.value) == "Не хватило памяти, чтобы открыть «a.txt»."
+
+
+def test_save_without_any_destination_is_a_document_error(tmp_path):
+    doc = opener.open_document(_txt(tmp_path))
+    doc.path = None
+    with pytest.raises(DocumentError) as e:
+        opener.save_document(doc, [])
+    assert str(e.value) == "Укажите, куда сохранить документ."
+
+
+def test_save_of_an_unknown_kind_is_a_document_error(tmp_path):
+    doc = opener.open_document(_txt(tmp_path))
+    doc.kind = "rtf"
+    with pytest.raises(DocumentError):
+        opener.save_document(doc, [])
+
+
+def test_saver_failures_become_document_errors(tmp_path, monkeypatch):
+    doc = opener.open_document(_txt(tmp_path))
+
+    def memory(*a):
+        raise MemoryError()
+
+    def other(*a):
+        raise ValueError("secret")
+    monkeypatch.setitem(opener.SAVERS, "txt", memory)
+    with pytest.raises(DocumentError) as e:
+        opener.save_document(doc, [], str(tmp_path / "out.txt"))
+    assert str(e.value) == "Не хватило памяти, чтобы сохранить «out.txt»."
+    monkeypatch.setitem(opener.SAVERS, "txt", other)
+    with pytest.raises(DocumentError) as e:
+        opener.save_document(doc, [], str(tmp_path / "out.txt"))
+    assert str(e.value) == "Не удалось сохранить «out.txt»." and "secret" not in str(e.value)
+
+
+def test_txt_part_file_is_removed_on_any_failure(tmp_path, monkeypatch):
+    doc = opener.open_document(_txt(tmp_path))
+
+    def broken(src, dst):
+        raise OSError("disk full")
+    monkeypatch.setattr(os, "replace", broken)
+    out = str(tmp_path / "out.txt")
+    with pytest.raises(OSError):
+        opener.SAVERS["txt"](doc, [], out)
+    assert not os.path.exists(out + ".part") and not os.path.exists(out)

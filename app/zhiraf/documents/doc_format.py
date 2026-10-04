@@ -299,7 +299,16 @@ def save_doc(doc, replacements, dst):
         texts = [apply_replacements(p.text, groups.get(i, [])) for i, p in enumerate(doc.paragraphs)]
         if not dst.lower().endswith(".docx"):
             dst = os.path.splitext(dst)[0] + ".docx"  # never a file named .doc without a real .doc inside
-        write_docx_package(dst, plain_paragraphs_xml(texts))
+        part = dst + ".part"
+        try:
+            write_docx_package(part, plain_paragraphs_xml(texts))
+            os.replace(part, dst)
+        except BaseException:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise
         return SaveReport(dst, len(replacements))
     inner = Document(doc.paragraphs, kind="docx", path=doc.source["docx"])
     fixed = os.path.join(doc.source["tmpdir"], "исправлено.docx")

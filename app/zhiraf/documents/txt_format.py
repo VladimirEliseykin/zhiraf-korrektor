@@ -47,19 +47,18 @@ def save_txt(doc, replacements, dst):
     groups = group_by_paragraph(replacements)
     lines = [apply_replacements(p.text, groups.get(i, [])) for i, p in enumerate(doc.paragraphs)]
 
-    # Write to temporary file first
+    # Write to temporary file first; whatever goes wrong, no .part is left behind
     part_path = dst + ".part"
     try:
         with open(part_path, "w", encoding=doc.source["encoding"], newline="") as f:
             f.write(doc.source["newline"].join(lines))
-    except UnicodeEncodeError:
-        # Clean up partial file
+        os.replace(part_path, dst)
+    except BaseException as e:
         try:
             os.remove(part_path)
         except OSError:
             pass
-        raise DocumentError("Исправленный текст содержит символы, которые нельзя сохранить в кодировке исходного файла.")
-
-    # Atomic replace
-    os.replace(part_path, dst)
+        if isinstance(e, UnicodeEncodeError):
+            raise DocumentError("Исправленный текст содержит символы, которые нельзя сохранить в кодировке исходного файла.")
+        raise
     return SaveReport(dst, len(replacements))

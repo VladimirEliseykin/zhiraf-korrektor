@@ -214,7 +214,7 @@ def read_odt(path):
                 level = int(p.get(t("outline-level"), "1"))
             except (ValueError, TypeError):
                 level = 1
-            style = "h%d" % min(level, 3)
+            style = "h%d" % max(1, min(level, 3))
         else:
             style = "list" if in_list else "normal"
         paragraphs.append(Paragraph(spans, style, position, image))

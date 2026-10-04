@@ -149,3 +149,9 @@ def test_write_package_cleanup_on_write_failure(tmp_path):
         assert not (tmp_path / "test.docx.part").exists()
     finally:
         zipfile.ZipFile.writestr = original_writestr
+
+
+def test_plain_paragraphs_flatten_tabs_and_breaks():
+    from zhiraf.documents.docx_format import plain_paragraphs_xml
+    xml = plain_paragraphs_xml(["a\tb\nc\rd"])
+    assert "\t" not in xml and "\n" not in xml and "a b c d" in xml

@@ -212,3 +212,10 @@ def test_doctype_in_utf16_document_gives_error(tmp_path):
     with pytest.raises(DocumentError) as e:
         read_docx(path)
     assert "неподдерживаемые конструкции" in str(e.value)
+
+
+def test_heading_level_zero_is_clamped_to_h1(tmp_path):
+    styles = ('<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+              '<w:style w:type="paragraph" w:styleId="0"><w:name w:val="heading 0"/></w:style></w:styles>')
+    doc = read_docx(make_docx(tmp_path / "a.docx", P(R("Раздел"), style="0"), styles_xml=styles))
+    assert doc.paragraphs[0].style == "h1"

@@ -19,15 +19,25 @@ def open_document(path):
                                 % (ext or "без расширения"))
     if not os.path.exists(path):
         raise DocumentError("Файл не найден: %s" % path)
+    name = os.path.basename(path)
     try:
         return reader(path)
     except DocumentError:
         raise
     except OSError:
-        raise DocumentError("Не удалось открыть «%s»: нет доступа или файл занят другой программой." % os.path.basename(path))
+        raise DocumentError("Не удалось открыть «%s»: нет доступа или файл занят другой программой." % name)
+    except MemoryError:
+        raise DocumentError("Не хватило памяти, чтобы открыть «%s»." % name)
+    except Exception:  # lxml, RecursionError... never carry document text or a traceback to the window
+        raise DocumentError("Не удалось открыть «%s»: файл повреждён." % name)
 
 
 def save_document(doc, replacements, dst=None):
+    if not dst and not doc.path:
+        raise DocumentError("Укажите, куда сохранить документ.")
+    saver = SAVERS.get(doc.kind)
+    if saver is None:
+        raise DocumentError("Формат документа «%s» не поддерживается для сохранения." % doc.kind)
     dst = dst or corrected_path(doc.path, doc.saved_as)
     if doc.path and os.path.normcase(os.path.abspath(dst)) == os.path.normcase(os.path.abspath(doc.path)):
         raise DocumentError("Исходный документ не перезаписывается — выберите другое имя.")
@@ -38,13 +48,17 @@ def save_document(doc, replacements, dst=None):
                 raise DocumentError("Исходный документ не перезаписывается — выберите другое имя.")
         except OSError:
             pass
+    name = os.path.basename(dst)
     try:
-        return SAVERS[doc.kind](doc, replacements, dst)
+        return saver(doc, replacements, dst)
     except DocumentError:
         raise
     except OSError:
-        raise DocumentError("Не удалось сохранить «%s»: нет доступа или файл открыт в другой программе."
-                            % os.path.basename(dst))
+        raise DocumentError("Не удалось сохранить «%s»: нет доступа или файл открыт в другой программе." % name)
+    except MemoryError:
+        raise DocumentError("Не хватило памяти, чтобы сохранить «%s»." % name)
+    except Exception:
+        raise DocumentError("Не удалось сохранить «%s»." % name)
 
 
 def close_document(doc):

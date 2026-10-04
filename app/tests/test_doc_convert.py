@@ -196,3 +196,14 @@ def test_libreoffice_to_doc_replaces_existing_destination(tmp_path):
     doc_format.LibreOffice(SOFFICE).to_doc(str(docx), str(dst))
     assert dst.read_bytes()[:4] == b"\xd0\xcf\x11\xe0" and not os.path.exists(str(dst) + ".part")
     assert os.listdir(storage.tmp_dir()) == []
+
+
+def test_text_only_save_is_atomic(tmp_path, monkeypatch):
+    doc = doc_format.Document([doc_format.Paragraph([doc_format.Span("Так же\tбыл")])], kind="doc",
+                              path=str(tmp_path / "a.doc"), editable=False, saved_as="docx")
+    doc.source = {"text_only": True}
+    dst = str(tmp_path / "out.docx")
+    monkeypatch.setattr(os, "replace", lambda a, b: (_ for _ in ()).throw(OSError("full")))
+    with pytest.raises(OSError):
+        doc_format.save_doc(doc, [], dst)
+    assert not os.path.exists(dst) and not os.path.exists(dst + ".part")
