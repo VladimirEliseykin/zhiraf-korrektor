@@ -5,17 +5,24 @@ from spellcheck.text import words_of
 
 
 class FakeTagger:
-    def __init__(self, comma_after=(), forms=None, delay=0.0, add_p=0.95, log=None, name=None):
+    def __init__(self, comma_after=(), forms=None, delay=0.0, add_p=0.95, log=None, name=None, del_after=(), del_p=0.95, fail_after=None):
         self.comma_after = set(comma_after)
         self.add_p = add_p
         self.log = log  # shared list: ("predict", name) per call, to check the order of the passes
         self.name = name
+        self.del_after = set(del_after)
+        self.del_p = del_p
+        self.fail_after = fail_after  # raise on this call number (1-based): a model that dies mid-pass
+        self.calls = 0
         self.forms = forms or {}
         self.delay = delay
 
     def predict(self, text):
         if self.delay:
             time.sleep(self.delay)
+        self.calls += 1
+        if self.fail_after is not None and self.calls == self.fail_after:
+            raise RuntimeError("predict failed")
         if self.log is not None:
             self.log.append(("predict", self.name))
         out = []
@@ -23,7 +30,8 @@ class FakeTagger:
             word = m.group(0)
             add = self.add_p if word in self.comma_after else 0.0
             label, p = self.forms.get(word, ("KEEP", 0.99))
-            out.append({"comma": {"KEEP": 1.0 - add, "ADD": add, "DEL": 0.0}, "form": label, "form_p": p,
+            dele = self.del_p if word in self.del_after else 0.0
+            out.append({"comma": {"KEEP": 1.0 - add - dele, "ADD": add, "DEL": dele}, "form": label, "form_p": p,
                         "form_keep_p": p if label == "KEEP" else 1.0 - p})
         return out
 

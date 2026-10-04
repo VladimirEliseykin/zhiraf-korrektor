@@ -80,6 +80,12 @@ class Progress(object):
             loads[stage] = max(0, self.first[stage] - self.stage_begin[stage] - rate)
         return loads
 
+    def _models_to_load(self, stage):
+        """Models of the stage whose pass has not begun (every model of a stage makes one pass over the sentences)."""
+        per_pass = max(1, self.n - self.skipped[stage])
+        begun = -(-self.done[stage] // per_pass)  # ceil: a pass with one step done has loaded its model
+        return max(0, self.passes[stage] - begun)
+
     def remaining_seconds(self):
         if self.started is None:
             return None
@@ -107,10 +113,11 @@ class Progress(object):
                 continue
             elif stage in rates:
                 remaining += left * rates[stage]
+                remaining += average_load * self._models_to_load(stage)
             else:
                 remaining += left * self.cost[stage] * speed_factor
-                if self.done[stage] == 0 and self.cost[stage] >= MIN_LOAD_COST:
-                    remaining += average_load
+                if self.cost[stage] >= MIN_LOAD_COST:
+                    remaining += average_load * self._models_to_load(stage)
 
         return max(0.0, remaining)
 

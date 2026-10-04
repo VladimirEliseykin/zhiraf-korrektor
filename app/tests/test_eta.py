@@ -128,3 +128,20 @@ def test_estimate_counts_both_passes_of_a_stage():
         p.sentence_done("commas")
     # ten steps took 1 s each (9 s between the first and the last): ten steps are still to come
     assert p.remaining_seconds() == pytest.approx(10.0)
+
+
+def test_each_model_still_to_load_adds_the_average_load_time():
+    """Stage commas has three models; its first one is loaded (3 s) and half done: two more loads are ahead."""
+    def make(passes):
+        clock = Clock()
+        p = Progress(10, ("commas", "sage"), {"commas": 0.1, "sage": 0.5}, clock)
+        p.set_passes({"commas": passes})
+        p.start()
+        clock.now += 3.0  # loading the first model
+        for _ in range(5):
+            clock.now += 1.0
+            p.sentence_done("commas")
+        return p
+    one, three = make(1), make(3)
+    # three models ahead: 20 more steps of 1 s and the loading of two more models (3 s each)
+    assert three.remaining_seconds() - one.remaining_seconds() == pytest.approx(20 * 1.0 + 2 * 3.0, abs=0.01)

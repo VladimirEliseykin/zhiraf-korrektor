@@ -10,6 +10,7 @@ level "error" — sure, shown as an error with its fix; "check" — the reader s
 """
 import gc
 import os
+from array import array
 import time
 
 from . import grammar_rules, rules, sage
@@ -37,9 +38,13 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 CHECK_COMBINE = {}
 # Forms: no ensemble beat R5 alone on dev (best 14 / 1 against 13 / 1 and fewer), so forms stay single-model;
 # the *_ENS form thresholds only keep the stage consistent if a second forms model is ever added.
+# The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
+# missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
+# those is at least as precise as one model alone, and nothing about two models was measured.
+# Forms have no measured ensemble (a stage with several form models uses the single-model thresholds).
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
+ENSEMBLE_SIZE = {"commas": 3}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
-SURE_FORM_ENS, CHECK_FORM_ENS = 0.9, 0.3
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
 
@@ -128,25 +133,53 @@ def merge(found):
     return sorted(kept, key=lambda f: (f["start"], f["end"]))
 
 
+COMBINERS = {"min": min, "mean": lambda xs: sum(xs) / len(xs)}
+CHECK_COMBINERS = {"min": min, "max": max, "first": lambda a: a[0], "mean": COMBINERS["mean"]}
+STORED = 5  # numbers kept per word: KEEP, ADD, DEL, form_p, form_keep_p (plus the form label)
+
+
+def validate_combiners():
+    for stage, how in ENSEMBLE_COMBINE.items():
+        if how not in COMBINERS:
+            raise ValueError("unknown ENSEMBLE_COMBINE[%r] = %r (use min or mean)" % (stage, how))
+    for stage, how in CHECK_COMBINE.items():
+        if how not in CHECK_COMBINERS:
+            raise ValueError("unknown CHECK_COMBINE[%r] = %r (use min, mean, max or first)" % (stage, how))
+
+
+validate_combiners()
+
+
+def compact(preds):
+    """The predictions of one sentence as (array of STORED doubles per word, form labels): a few dozen bytes a word
+    instead of a dict of dicts (an earlier model's predictions for a whole document wait in memory)."""
+    numbers = array("d")
+    for p in preds:
+        c = p["comma"]
+        numbers.extend((c["KEEP"], c["ADD"], c["DEL"], p["form_p"], p["form_keep_p"]))
+    return numbers, [p["form"] for p in preds]
+
+
 def combine_predictions(parts, how, check_how=None):
-    """One prediction list from the lists of several models (a word past a model's token limit is dropped).
+    """One prediction list from the compact lists of several models (see compact(); a word past a model's token
+    limit is dropped).
 
     Comma probabilities are combined per label; a word form counts only when every model chose the same
     label, its probability is then the combined form_p (otherwise the word is KEEP).
     check_how: the comma "CHECK" score for the "check" level, combined differently from the sure one.
     """
-    pick = min if how == "min" else (lambda xs: sum(xs) / len(xs))
+    pick = COMBINERS[how]
     out = []
-    for words in zip(*parts):
-        comma = {k: pick([w["comma"][k] for w in words]) for k in words[0]["comma"]}
+    for i in range(min(len(forms) for _, forms in parts)):
+        rows = [numbers[i * STORED:(i + 1) * STORED] for numbers, _ in parts]
+        labels = [forms[i] for _, forms in parts]
+        comma = {"KEEP": pick([r[0] for r in rows]), "ADD": pick([r[1] for r in rows]), "DEL": pick([r[2] for r in rows])}
         if check_how is not None:
-            adds = [w["comma"]["ADD"] for w in words]
-            comma["CHECK"] = {"min": min, "max": max, "first": lambda a: a[0],
-                              "mean": lambda a: sum(a) / len(a)}[check_how](adds)
-        same = all(w["form"] == words[0]["form"] for w in words)
-        out.append({"comma": comma, "form": words[0]["form"] if same else "KEEP",
-                    "form_p": pick([w["form_p"] for w in words]) if same else 0.0,
-                    "form_keep_p": pick([w["form_keep_p"] for w in words])})
+            comma["CHECK"] = CHECK_COMBINERS[check_how]([r[1] for r in rows])
+        same = all(label == labels[0] for label in labels)
+        out.append({"comma": comma, "form": labels[0] if same else "KEEP",
+                    "form_p": pick([r[3] for r in rows]) if same else 0.0,
+                    "form_keep_p": pick([r[4] for r in rows])})
     return out
 
 
@@ -179,21 +212,24 @@ class Checker:
         self.stats[name] = {"seconds": round(time.perf_counter() - started, 1), "rss_mb": rss}
 
     def _earlier_passes(self, stage, makers, prepared, first, should_stop, on_step):
-        """Predictions of every model but the last, for sentences first..end: [None] * first + per-sentence lists
-        per model. Each model is released before the next is loaded. None when should_stop ended the pass."""
+        """Compact predictions (see compact()) of every model but the last: one list per model, [None] * first +
+        one entry per sentence from first on. Each model is released before the next is loaded, also when a
+        prediction fails or should_stop ends the pass (then None)."""
         parts = []
         for make in makers[:-1]:
             model = make()
-            found = [None] * first
-            for i in range(first, len(prepared)):
-                if should_stop is not None and should_stop():
-                    return None
-                found.append(model.predict(prepared[i][1]))
-                if on_step is not None:
-                    on_step(stage)
+            try:
+                found = [None] * first
+                for i in range(first, len(prepared)):
+                    if should_stop is not None and should_stop():
+                        return None
+                    found.append(compact(model.predict(prepared[i][1])))
+                    if on_step is not None:
+                        on_step(stage)
+            finally:
+                model = None  # release this model before the next one is loaded (or before leaving)
+                gc.collect()
             parts.append(found)
-            model = None  # release this model before the next one is loaded
-            gc.collect()
         return parts
 
     def _stage_function(self, stage, sentences, context, prepared=None, first=0, should_stop=None, on_step=None):
@@ -203,24 +239,29 @@ class Checker:
             return lambda i, body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
         made = self.factories[stage]
         makers = list(made) if isinstance(made, (list, tuple)) else [made]
+        if len(makers) > 1:
+            validate_combiners()
         parts = self._earlier_passes(stage, makers, prepared, first, should_stop, on_step) if len(makers) > 1 else []
         if parts is None:
             return None
+        if len(makers) > 1 and should_stop is not None and should_stop():
+            return None  # stopped right after the last silent step: do not load the last model for nothing
         model = makers[-1]()
         if stage == "sage":
             return lambda i, body: sage.findings(body, model.correct(body), self.lexicon)
-        how = ENSEMBLE_COMBINE[stage]
+        how = ENSEMBLE_COMBINE.get(stage, "min")
+        measured = len(makers) == ENSEMBLE_SIZE.get(stage)  # thresholds exist only for the measured model count
+        check_how = CHECK_COMBINE.get(stage) if measured else None
         if stage == "commas":
-            ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS) if parts else {}
+            ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS) if measured else {}
             to_findings = lambda body, p: comma_findings(body, p, **ens)  # noqa: E731
         else:
-            ens = dict(sure=SURE_FORM_ENS, check=CHECK_FORM_ENS) if parts else {}
-            to_findings = lambda body, p: form_findings(body, p, **ens)  # noqa: E731
+            to_findings = form_findings
 
         def check(i, body):
             preds = model.predict(body)
             if parts:
-                preds = combine_predictions([part[i] for part in parts] + [preds], how, CHECK_COMBINE.get(stage))
+                preds = combine_predictions([part[i] for part in parts] + [compact(preds)], how, check_how)
                 for part in parts:
                     part[i] = None  # a sentence is combined once: free its earlier predictions
             return to_findings(body, preds)
@@ -234,7 +275,9 @@ class Checker:
         start=(stage, index) resumes: earlier stages are skipped entirely (no model is loaded for them)
         and, in that stage, the sentences before index. self.stopped tells whether should_stop ended it.
         A stage with several models first makes silent passes with all but the last model; on_step(stage)
-        is called after each sentence of such a pass (progress), the findings come in the last pass.
+        is called after each sentence of such a pass (progress), the findings come in the last pass only.
+        To resume such a stage use the index after the last YIELDED findings, never the progress step count
+        (which also counts the silent passes).
         """
         self.stopped = False
         prepared = [prepare(s) for s in sentences]

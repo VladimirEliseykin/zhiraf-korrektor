@@ -6,7 +6,7 @@ import pytest
 
 from fakes import FakeTagger, make_ensemble_factories, make_factories
 from spellcheck import checker as checker_module
-from spellcheck.checker import Checker, combine_predictions
+from spellcheck.checker import Checker, combine_predictions, compact
 from spellcheck.stages import model_folders
 from zhiraf.worker import CheckJob
 
@@ -50,7 +50,8 @@ def test_mean_combiner_is_softer_than_min(models_dir, monkeypatch):
     # one model sure, the other does not see it: min gives nothing, the average 0.475 stays a "check"
     assert commas(two_models(models_dir, after_b=()))[0] == [("MODEL_COMMA", "check")]
     assert commas(two_models(models_dir, p_a=0.95, p_b=0.3))[0] == [("MODEL_COMMA", "check")]  # mean 0.625
-    assert commas(two_models(models_dir, p_a=0.95, p_b=0.5))[0] == [("MODEL_COMMA", "error")]  # mean 0.725
+    # two models use the single-model thresholds (error from 0.9): the mean 0.725 is only a "check"
+    assert commas(two_models(models_dir, p_a=0.95, p_b=0.5))[0] == [("MODEL_COMMA", "check")]
     monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "min")
     assert commas(two_models(models_dir, p_a=0.95, p_b=0.5))[0] == [("MODEL_COMMA", "check")]  # min 0.5
 
@@ -58,11 +59,11 @@ def test_mean_combiner_is_softer_than_min(models_dir, monkeypatch):
 def test_combine_predictions_forms_need_the_same_label():
     def pred(label, p):
         return [{"comma": {"KEEP": 1.0, "ADD": 0.0, "DEL": 0.0}, "form": label, "form_p": p, "form_keep_p": 1 - p}]
-    same = combine_predictions([pred("case:ablt", 0.9), pred("case:ablt", 0.7)], "min")[0]
+    same = combine_predictions([compact(pred("case:ablt", 0.9)), compact(pred("case:ablt", 0.7))], "min")[0]
     assert same["form"] == "case:ablt" and same["form_p"] == pytest.approx(0.7)
-    mean = combine_predictions([pred("case:ablt", 0.9), pred("case:ablt", 0.7)], "mean")[0]
+    mean = combine_predictions([compact(pred("case:ablt", 0.9)), compact(pred("case:ablt", 0.7))], "mean")[0]
     assert mean["form_p"] == pytest.approx(0.8)
-    other = combine_predictions([pred("case:ablt", 0.9), pred("case:gent", 0.95)], "min")[0]
+    other = combine_predictions([compact(pred("case:ablt", 0.9)), compact(pred("case:gent", 0.95))], "min")[0]
     assert other["form"] == "KEEP" and other["form_p"] == 0.0
 
 
@@ -192,13 +193,142 @@ def test_job_progress_counts_both_passes(models_dir):
 
 
 def test_hybrid_check_level_uses_the_softer_score(models_dir, monkeypatch):
-    # the second model sees nothing: min is 0 (no finding), the mean 0.475 reaches the check band
-    assert commas(two_models(models_dir, after_b=()))[0] == []
+    blind = {}
+    specs = [AGREE, AGREE, blind]  # the third model sees nothing: min 0, mean 0.63, first 0.95
+    assert commas(models(models_dir, specs))[0] == []
     monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "mean")
-    assert commas(two_models(models_dir, after_b=()))[0] == [("MODEL_COMMA", "check")]
-    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "first")  # the main model alone: 0.95 ...
-    assert commas(two_models(models_dir, after_b=()))[0] == [("MODEL_COMMA", "check")]  # ... but never an error
+    assert commas(models(models_dir, specs))[0] == [("MODEL_COMMA", "check")]
+    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "first")  # 0.95 ... but never an error
+    assert commas(models(models_dir, specs))[0] == [("MODEL_COMMA", "check")]
     monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "max")
-    assert commas(two_models(models_dir, p_a=0.1, p_b=0.4, after_b=("Документ",)))[0] == [("MODEL_COMMA", "check")]
-    # an agreed error stays an error whatever the check score is
-    assert commas(two_models(models_dir))[0] == [("MODEL_COMMA", "error")]
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.1), dict(AGREE, add_p=0.4), blind]))[0] == [("MODEL_COMMA", "check")]
+    assert commas(models(models_dir, [AGREE] * 3))[0] == [("MODEL_COMMA", "error")]  # an agreed error stays an error
+
+
+# ---------- review follow-up ----------
+
+def models(models_dir, specs, log=None):
+    """A Checker whose commas stage has one FakeTagger per spec (kwargs), named A, B, C ..."""
+    factories = make_factories()
+    factories["commas"] = [(lambda k, kw: lambda: FakeTagger(log=log, name=k, **kw))(chr(65 + n), spec)
+                           for n, spec in enumerate(specs)]
+    return Checker(models_dir, factories=factories)
+
+
+AGREE = {"comma_after": {"Документ"}}
+
+
+def test_a_single_model_keeps_the_single_thresholds(models_dir):
+    c = models(models_dir, [dict(AGREE, add_p=0.75)])
+    assert commas(c)[0] == [("MODEL_COMMA", "check")]  # 0.75 < 0.9
+    c = models(models_dir, [dict(AGREE, add_p=0.95)])
+    assert commas(c)[0] == [("MODEL_COMMA", "error")]
+    c = models(models_dir, [dict(AGREE, add_p=0.25)])
+    assert commas(c)[0] == []  # below the check band 0.3
+
+
+def test_three_models_use_the_ensemble_thresholds(models_dir):
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "error")]  # >= 0.7
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 3))[0] == [("MODEL_COMMA", "check")]  # >= 0.2
+
+
+def test_two_models_fall_back_to_the_single_thresholds(models_dir):
+    # a missing or half-copied third model: nothing measured for two, so 0.9 / 0.3 like a single model
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 2))[0] == [("MODEL_COMMA", "check")]
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.95)] * 2))[0] == [("MODEL_COMMA", "error")]
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 2))[0] == []
+
+
+COMMA_SENTENCES = ["Мы знаем, что это так.", "Он сказал, что придёт."]
+
+
+def del_levels(c):
+    return [[(f["rule"], f["level"]) for f in items] for stage, i, items in c.stream(COMMA_SENTENCES, stages=("commas",))]
+
+
+def test_delete_needs_every_model_and_the_ensemble_delete_threshold(models_dir):
+    sure = {"del_after": {"знаем", "сказал"}}
+    assert del_levels(models(models_dir, [dict(sure, del_p=0.85)] * 3)) == [[("MODEL_COMMA_DEL", "error")]] * 2  # >= 0.8
+    one_blind = [dict(sure, del_p=0.95), dict(sure, del_p=0.95), {}]
+    assert del_levels(models(models_dir, one_blind)) == [[], []]  # min over the models is 0
+    assert del_levels(models(models_dir, [dict(sure, del_p=0.75)] * 3)) == [[], []]  # under 0.8
+    assert del_levels(models(models_dir, [dict(sure, del_p=0.85)])) == [[], []]  # a single model needs 0.9
+
+
+def test_delete_and_add_do_not_mix_up(models_dir):
+    spec = {"del_after": {"знаем"}, "comma_after": {"Мы"}, "del_p": 0.95, "add_p": 0.95}
+    found = del_levels(models(models_dir, [spec] * 3))[0]
+    assert ("MODEL_COMMA_DEL", "error") in found  # the comma after "знаем" goes
+    assert len(found) == 2 and ("MODEL_COMMA", "error") in found  # and one is added after "Мы"
+
+
+def test_three_models_are_released_one_after_another(models_dir):
+    events, refs = [], []
+
+    def make(name):
+        def factory():
+            events.append(("alive", name, [r() is not None for r in refs]))
+            model = FakeTagger(comma_after={"Документ"})
+            refs.append(weakref.ref(model))
+            return model
+        return factory
+    factories = make_factories()
+    factories["commas"] = [make("A"), make("B"), make("C")]
+    list(Checker(models_dir, factories=factories).stream(SENTENCES, stages=("commas",)))
+    # when B loads A is gone; when C loads A and B are gone
+    assert events == [("alive", "A", []), ("alive", "B", [False]), ("alive", "C", [False, False])]
+
+
+def test_ensemble_resume_equals_the_full_run_from_k_on(models_dir):
+    def run(**kw):
+        c = models(models_dir, [dict(AGREE, add_p=0.8)] * 3)
+        return [(i, items) for stage, i, items in c.stream(SENTENCES, stages=("commas",), **kw)]
+    full = run()
+    for k in range(len(SENTENCES)):
+        assert run(start=("commas", k)) == full[k:]
+
+
+def test_a_failing_predict_releases_the_model(models_dir):
+    refs = []
+
+    def first():
+        model = FakeTagger(comma_after={"Документ"}, fail_after=2)
+        refs.append(weakref.ref(model))
+        return model
+    factories = make_factories()
+    factories["commas"] = [first, lambda: FakeTagger(), lambda: FakeTagger()]
+    c = Checker(models_dir, factories=factories)
+    with pytest.raises(RuntimeError):
+        list(c.stream(SENTENCES, stages=("commas",)))
+    gc.collect()
+    assert refs[0]() is None
+
+
+def test_stop_after_the_last_silent_step_loads_no_last_model(models_dir):
+    loaded, steps = [], []
+    factories = make_factories()
+    factories["commas"] = [(lambda n: lambda: (loaded.append(n), FakeTagger())[1])(n) for n in "ABC"]
+    c = Checker(models_dir, factories=factories)
+    total = 2 * len(SENTENCES)  # two silent passes
+    result = list(c.stream(SENTENCES, stages=("commas",), should_stop=lambda: len(steps) >= total,
+                           on_step=steps.append))
+    assert result == [] and c.stopped is True and loaded == ["A", "B"]
+
+
+def test_unknown_combiners_are_refused(models_dir, monkeypatch):
+    monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "median")
+    with pytest.raises(ValueError):
+        list(two_models(models_dir).stream(SENTENCES, stages=("commas",)))
+    monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "min")
+    monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "median")
+    with pytest.raises(ValueError):
+        list(two_models(models_dir).stream(SENTENCES, stages=("commas",)))
+
+
+def test_earlier_predictions_are_stored_compactly(models_dir):
+    from array import array
+    c = models(models_dir, [AGREE] * 3)
+    parts = c._earlier_passes("commas", c.factories["commas"], [(" ", s) for s in SENTENCES], 0, None, None)
+    assert len(parts) == 2
+    numbers, forms = parts[0][0]
+    assert isinstance(numbers, array) and len(forms) == len(numbers) // 5  # five numbers and a label per word
