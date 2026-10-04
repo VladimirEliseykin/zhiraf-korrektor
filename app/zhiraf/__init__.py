@@ -19,4 +19,5 @@ def models_dir():
     if override:
         return override
     shipped = os.path.join(ROOT, "models")
-    return shipped if os.path.isdir(shipped) else os.path.join(ENGINE_DIR, "models")
+    # a folder that merely exists is not enough: stale unrelated "models" folders must not shadow ours
+    return shipped if os.path.isfile(os.path.join(shipped, "vocab.tsv")) else os.path.join(ENGINE_DIR, "models")
