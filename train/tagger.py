@@ -289,12 +289,14 @@ def train(args):
                 os.replace(tmp, ckpt_path)  # atomic: a kill during saving never corrupts the checkpoint
         report = evaluate(model, tokenizer, val, form_labels, dev)
         print("epoch %d validation: %s" % (epoch, json.dumps(report)), flush=True)
+        if args.max_steps and step >= args.max_steps:
+            # smoke run: only the weights, no epoch copy and no multi-GB optimiser checkpoint
+            torch.save(model.state_dict(), os.path.join(args.out, "model.pt"))
+            break
         torch.save(model.state_dict(), os.path.join(args.out, "model-epoch%d.pt" % epoch))
         torch.save(model.state_dict(), os.path.join(args.out, "model.pt"))
         torch.save({"model": model.state_dict(), "optim": optim.state_dict(), "sched": sched.state_dict(),
                     "step": step, "epoch": epoch + 1, "batch": 0}, ckpt_path)
-        if args.max_steps and step >= args.max_steps:
-            break  # smoke runs: stop after the requested number of steps (the epoch's files are written above)
 
 
 def decode(logits, form_labels, word_pos):
