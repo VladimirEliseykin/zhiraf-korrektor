@@ -98,3 +98,101 @@ def test_text_only_never_writes_doc_extension(tmp_path):
 
 def test_word_not_used_off_windows():
     assert doc_format._word_installed() is False
+
+
+# Word through a fake comtypes (Word itself is never started)
+
+class FakeDocument:
+    def __init__(self, log, fail):  # no SaveAs2 attribute: the code must fall back to SaveAs (Word 2007)
+        self.log, self.fail = log, fail
+
+    def SaveAs(self, path, file_format):
+        self.log.append(("SaveAs", file_format))
+        with open(path, "wb") as f:
+            f.write(b"partial")
+        if self.fail:
+            raise RuntimeError("disk full")
+
+    def Close(self, save):
+        self.log.append(("Close", save))
+
+
+class FakeDocuments:
+    def __init__(self, word):
+        self.word = word
+
+    def Open(self, **kwargs):
+        self.word.log.append(("Open", kwargs, self.word.__dict__.get("AutomationSecurity")))
+        return FakeDocument(self.word.log, self.word.fail)
+
+
+class FakeWord:
+    def __init__(self, log, fail):
+        self.log, self.fail = log, fail
+        self.Documents = FakeDocuments(self)
+
+    def Quit(self):
+        self.log.append(("Quit",))
+
+
+@pytest.fixture
+def fake_word(monkeypatch):
+    import sys
+    import types
+    state = types.SimpleNamespace(log=[], fail=False)
+    client = types.ModuleType("comtypes.client")
+    client.CreateObject = lambda name: FakeWord(state.log, state.fail)
+    com = types.ModuleType("comtypes")
+    com.client = client
+    com.CoInitialize = lambda: state.log.append(("CoInitialize",))
+    com.CoUninitialize = lambda: state.log.append(("CoUninitialize",))
+    monkeypatch.setitem(sys.modules, "comtypes", com)
+    monkeypatch.setitem(sys.modules, "comtypes.client", client)
+    return state
+
+
+def test_word_to_doc_is_safe(tmp_path, fake_word):
+    src, dst = tmp_path / "in.docx", tmp_path / "out.doc"
+    src.write_bytes(b"x")
+    doc_format.Word().to_doc(str(src), str(dst))
+    names = [e[0] for e in fake_word.log]
+    assert names == ["CoInitialize", "Open", "SaveAs", "Close", "Quit", "CoUninitialize"]
+    opened = fake_word.log[1]
+    assert opened[2] == 3                                   # macros disabled before Open
+    kw = opened[1]
+    assert kw["ReadOnly"] is True and kw["AddToRecentFiles"] is False and kw["ConfirmConversions"] is False
+    assert kw["PasswordDocument"] and kw["PasswordDocument"] == kw["WritePasswordDocument"]
+    assert fake_word.log[2] == ("SaveAs", doc_format.WD_FORMAT_DOC)  # SaveAs2 missing: Word 2007 fallback
+    assert dst.read_bytes() == b"partial" and not os.path.exists(str(dst) + ".part")
+    assert os.listdir(storage.tmp_dir()) == []
+
+
+def test_word_failed_save_leaves_no_partial_file(tmp_path, fake_word):
+    fake_word.fail = True
+    src, dst = tmp_path / "in.docx", tmp_path / "out.doc"
+    src.write_bytes(b"x")
+    with pytest.raises(doc_format.ConversionError):
+        doc_format.Word().to_doc(str(src), str(dst))
+    names = [e[0] for e in fake_word.log]
+    assert names[-3:] == ["Close", "Quit", "CoUninitialize"]
+    assert not dst.exists() and not os.path.exists(str(dst) + ".part")
+    assert os.listdir(storage.tmp_dir()) == []
+
+
+def test_word_to_docx_uses_xml_document_format(tmp_path, fake_word):
+    src = tmp_path / "in.doc"
+    src.write_bytes(b"x")
+    out = doc_format.Word().to_docx(str(src), str(tmp_path))
+    assert out.endswith("in.docx") and os.path.exists(out)
+    assert fake_word.log[2] == ("SaveAs", 12)
+    assert os.listdir(storage.tmp_dir()) == []
+
+
+@needs_soffice
+def test_libreoffice_to_doc_replaces_existing_destination(tmp_path):
+    docx = make_docx(tmp_path / "a.docx", P(R("Текст")))
+    dst = tmp_path / "out.doc"
+    dst.write_bytes(b"old")
+    doc_format.LibreOffice(SOFFICE).to_doc(str(docx), str(dst))
+    assert dst.read_bytes()[:4] == b"\xd0\xcf\x11\xe0" and not os.path.exists(str(dst) + ".part")
+    assert os.listdir(storage.tmp_dir()) == []

@@ -115,7 +115,9 @@ def extract_doc_text(path):
 
 NO_OFFICE_NOTICE = ("На компьютере нет Word и LibreOffice: оформление этого .doc сохранить не получится, "
                     "исправленная версия будет сохранена как .docx.")
-WD_FORMAT_DOC, WD_FORMAT_DOCX = 0, 16
+WD_FORMAT_DOC, WD_FORMAT_DOCX = 0, 12   # wdFormatDocument, wdFormatXMLDocument (also valid in Word 2007)
+MSO_AUTOMATION_SECURITY_FORCE_DISABLE = 3
+DUMMY_PASSWORD = "\u0000zhiraf"         # makes Word fail on a protected file instead of asking for a password
 
 
 class ConversionError(Exception):
@@ -124,6 +126,18 @@ class ConversionError(Exception):
 
 def _no_window():
     return {"creationflags": 0x08000000} if sys.platform == "win32" else {}  # CREATE_NO_WINDOW
+
+
+def _safe_move(src, dst):
+    """Put src at dst so that dst is either complete or untouched (also across volumes, also over an existing file)."""
+    part = dst + ".part"
+    try:
+        shutil.copyfile(src, part)
+        os.replace(part, dst)
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
+    os.remove(src)
 
 
 class LibreOffice:
@@ -154,7 +168,7 @@ class LibreOffice:
     def to_doc(self, src_docx, dst):
         outdir = tempfile.mkdtemp(dir=storage.tmp_dir())
         try:
-            shutil.move(self._convert(src_docx, "doc:MS Word 97", outdir), dst)
+            _safe_move(self._convert(src_docx, "doc:MS Word 97", outdir), dst)
         finally:
             shutil.rmtree(outdir, ignore_errors=True)
 
@@ -163,29 +177,57 @@ class Word:
     """Microsoft Word through COM, invisible to the user."""
     name = "Microsoft Word"
 
-    def _save_as(self, src, dst, file_format):
+    def _com_save(self, src, produced, file_format):
         try:
+            import comtypes
             import comtypes.client
-            word = comtypes.client.CreateObject("Word.Application")
+            comtypes.CoInitialize()  # the GUI may convert from a worker thread
         except Exception as e:  # COM errors are many and version-specific
             raise ConversionError(type(e).__name__)
         try:
-            word.Visible = False
-            word.DisplayAlerts = 0
-            document = word.Documents.Open(os.path.abspath(src), False, True, False)  # no prompts, read-only, not in recent
             try:
+                word = comtypes.client.CreateObject("Word.Application")
+            except Exception as e:
+                raise ConversionError(type(e).__name__)
+            try:
+                word.AutomationSecurity = MSO_AUTOMATION_SECURITY_FORCE_DISABLE  # no macros of a secret document
+                word.Visible = False
+                word.DisplayAlerts = 0
+                document = word.Documents.Open(
+                    FileName=os.path.abspath(src), ConfirmConversions=False, ReadOnly=True, AddToRecentFiles=False,
+                    PasswordDocument=DUMMY_PASSWORD, WritePasswordDocument=DUMMY_PASSWORD)
                 try:
-                    document.SaveAs2(os.path.abspath(dst), file_format)
-                except AttributeError:
-                    document.SaveAs(os.path.abspath(dst), file_format)  # Word 2007
+                    try:
+                        document.SaveAs2(produced, file_format)
+                    except AttributeError:
+                        document.SaveAs(produced, file_format)  # Word 2007
+                finally:
+                    try:
+                        document.Close(False)
+                    except Exception:
+                        pass
+            except ConversionError:
+                raise
+            except Exception as e:
+                raise ConversionError(type(e).__name__)
             finally:
-                document.Close(False)
-        except ConversionError:
-            raise
-        except Exception as e:
-            raise ConversionError(type(e).__name__)
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
         finally:
-            word.Quit()
+            comtypes.CoUninitialize()
+
+    def _save_as(self, src, dst, file_format):
+        work = tempfile.mkdtemp(dir=storage.tmp_dir())  # a failed SaveAs must not leave a partial file at dst
+        try:
+            produced = os.path.join(work, os.path.basename(dst))
+            self._com_save(src, produced, file_format)
+            if not os.path.exists(produced):
+                raise ConversionError("no output")
+            _safe_move(produced, dst)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     def to_docx(self, src, outdir):
         dst = os.path.join(outdir, os.path.splitext(os.path.basename(src))[0] + ".docx")
