@@ -1,0 +1,30 @@
+# large artefacts: models, corpora, training runs, disk images, environments
+models/
+corpus/
+runs/
+engine/models/
+lt/
+payload*/
+*.iso
+*.qcow2
+*.img
+*.zip
+uv-cache/
+uv-python/
+venv-train/
+spike/venv/
+spike/uv-python/
+spike/models/
+spike/bench-sage/
+spike/grammar-cache.json
+spike/rupunct-body-*.json
+
+# runtime
+__pycache__/
+*.pyc
+monitor.sock
+screen.png
+catalog-search*.html
+.superpowers/
+spike/lo-profile/
+spike/rupunct-*.json
