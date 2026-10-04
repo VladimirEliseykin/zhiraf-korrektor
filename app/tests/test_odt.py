@@ -1,8 +1,9 @@
+import os
 import zipfile
 
 from docfactory import OH, OP, OSPAN, make_odt, zip_entries
 from zhiraf.documents import opener
-from zhiraf.documents.model import Replacement
+from zhiraf.documents.model import DocumentError, Replacement
 from zhiraf.documents.odt_format import read_odt, save_odt
 
 
@@ -51,3 +52,30 @@ def test_package_order_and_mimetype_kept(tmp_path):
         assert first.filename == "mimetype" and first.compress_type == zipfile.ZIP_STORED
     before, after = zip_entries(src), zip_entries(report.path)
     assert list(before) == list(after) and before["Pictures/image1.png"] == after["Pictures/image1.png"]
+
+
+def test_corrupt_content_xml_raises_error(tmp_path):
+    src = make_odt(tmp_path / "a.odt", OP("Текст"))
+    # Corrupt content.xml by replacing valid XML with invalid XML
+    with zipfile.ZipFile(src, "a") as z:
+        z.writestr("content.xml", b"<invalid>unclosed tag")
+    try:
+        read_odt(src)
+        assert False, "Should have raised DocumentError"
+    except DocumentError as e:
+        assert "повреждён" in str(e)
+
+
+def test_document_changed_after_read_raises_error_and_creates_no_output(tmp_path):
+    src = make_odt(tmp_path / "a.odt", OP("Текст"))
+    doc = read_odt(src)
+    # Rewrite source with different text
+    make_odt(src, OP("Другой текст"))
+    dst = str(tmp_path / "out.odt")
+    try:
+        save_odt(doc, [Replacement(0, 0, 4, "Новый")], dst)
+        assert False, "Should have raised DocumentError"
+    except DocumentError as e:
+        assert "изменился" in str(e)
+    # Verify output file was not created
+    assert not os.path.exists(dst)

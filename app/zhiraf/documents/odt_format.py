@@ -4,6 +4,7 @@ Text of an ODF paragraph lives in element .text and in the .tail of child elemen
 <text:s text:c="n"/>, tabs <text:tab/>, breaks <text:line-break/> - those are fixed slots.
 """
 import os
+import zipfile
 
 from lxml import etree
 
@@ -92,7 +93,11 @@ def paragraph_slots(p, styles):
             if child.tag in (t("span"), t("a")):
                 walk(child, _format(child, fmt, styles))
             elif child.tag == t("s"):
-                slots.append(OdtFixed(" " * int(child.get(t("c"), "1")), fmt))
+                try:
+                    count = int(child.get(t("c"), "1"))
+                except (ValueError, TypeError):
+                    count = 1
+                slots.append(OdtFixed(" " * count, fmt))
             elif child.tag == t("tab"):
                 slots.append(OdtFixed("\t", fmt))
             elif child.tag == t("line-break"):
@@ -139,22 +144,34 @@ def iter_paragraphs(office_text):
     return walk(office_text, None, False)
 
 
+def _check_sizes(path):
+    """Check file sizes BEFORE reading (only for parts we actually parse)."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            for name in (CONTENT_XML, STYLES_XML):
+                try:
+                    info = z.getinfo(name)
+                    if info.file_size > MAX_SIZE:
+                        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+                except KeyError:
+                    pass  # STYLES_XML is optional
+    except DocumentError:
+        raise
+    except (zipfile.BadZipFile, OSError, ValueError, RuntimeError, NotImplementedError, EOFError, RecursionError):
+        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+
+
 def _roots(blobs, path):
-    """Parse content.xml and styles.xml; enforce size limits and safe parsing."""
+    """Parse content.xml and styles.xml with safe parsing."""
     if CONTENT_XML not in blobs:
         raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
 
     content_blob = blobs[CONTENT_XML]
-    if len(content_blob) > MAX_SIZE:
-        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
-
     content = _parse_xml_safe(content_blob, path)
 
     styles = None
     if STYLES_XML in blobs:
         styles_blob = blobs[STYLES_XML]
-        if len(styles_blob) > MAX_SIZE:
-            raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
         styles = _parse_xml_safe(styles_blob, path)
 
     return content, _text_styles(content, styles)
@@ -165,6 +182,8 @@ def _body(content):
 
 
 def read_odt(path):
+    _check_sizes(path)
+
     try:
         _, blobs = read_package(path)
     except DocumentError:
@@ -172,10 +191,13 @@ def read_odt(path):
     except (KeyError, OSError, RuntimeError):
         raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
 
-    content, styles = _roots(blobs, path)
-    body = _body(content)
-    if body is None:
-        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+    try:
+        content, styles = _roots(blobs, path)
+        body = _body(content)
+        if body is None:
+            raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+    except DocumentError:
+        raise
 
     paragraphs = []
     for p, position, in_list in iter_paragraphs(body):
@@ -188,7 +210,11 @@ def read_odt(path):
             else:
                 spans.append(Span(slot.text, *fmt))
         if p.tag == t("h"):
-            style = "h%d" % min(int(p.get(t("outline-level"), "1")), 3)
+            try:
+                level = int(p.get(t("outline-level"), "1"))
+            except (ValueError, TypeError):
+                level = 1
+            style = "h%d" % min(level, 3)
         else:
             style = "list" if in_list else "normal"
         paragraphs.append(Paragraph(spans, style, position, image))
@@ -197,6 +223,8 @@ def read_odt(path):
 
 def save_odt(doc, replacements, dst):
     """Copy the original package; only characters of the fixes change in content.xml."""
+    _check_sizes(doc.path)
+
     try:
         infos, blobs = read_package(doc.path)
     except DocumentError:
