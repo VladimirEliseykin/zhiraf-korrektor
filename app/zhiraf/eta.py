@@ -1,7 +1,8 @@
 """How much of the check is done and when it will end, measured on this very computer."""
 import time
 
-MIN_SECONDS = 2.0  # before that the speed is noise (models are still loading)
+DEFAULT_LOAD_SECONDS = 3.0
+MIN_LOAD_COST = 0.01
 
 
 class Progress(object):
@@ -14,12 +15,24 @@ class Progress(object):
         self.clock = clock
         self.done = {s: 0 for s in self.stages}
         self.started = None
+        self.last_event = None
+        self.stage_begin = {}
+        self.first = {}
+        self.last = {}
 
     def start(self):
-        self.started = self.clock()
+        t0 = self.clock()
+        self.started = t0
+        self.last_event = t0
 
     def sentence_done(self, stage):
+        now = self.clock()
+        if self.done[stage] == 0:
+            self.stage_begin[stage] = self.last_event
+            self.first[stage] = now
+        self.last[stage] = now
         self.done[stage] += 1
+        self.last_event = now
 
     def _units(self, counts):
         return sum(self.cost[s] * counts[s] for s in self.stages)
@@ -33,14 +46,51 @@ class Progress(object):
             return 1.0
         return min(1.0, self._units(self.done) / total)
 
+    def _get_rates(self):
+        rates = {}
+        for stage in self.stages:
+            if self.done[stage] >= 2:
+                rates[stage] = (self.last[stage] - self.first[stage]) / (self.done[stage] - 1)
+        return rates
+
+    def _get_loads(self, rates):
+        loads = {}
+        for stage, rate in rates.items():
+            loads[stage] = max(0, self.first[stage] - self.stage_begin[stage] - rate)
+        return loads
+
     def remaining_seconds(self):
-        done = self._units(self.done)
-        if self.started is None or done <= 0:
+        if self.started is None:
             return None
-        elapsed = self.clock() - self.started
-        if elapsed < MIN_SECONDS:
+
+        rates = self._get_rates()
+        if not rates:
             return None
-        return max(0.0, (self._total() - done) * elapsed / done)
+
+        loads = self._get_loads(rates)
+
+        numerator = sum(rates[s] * self.done[s] for s in rates if self.cost[s] >= MIN_LOAD_COST)
+        denominator = sum(self.cost[s] * self.done[s] for s in rates if self.cost[s] >= MIN_LOAD_COST)
+        speed_factor = numerator / denominator if denominator > 0 else 1.0
+
+        load_stages = [s for s in rates if self.cost[s] >= MIN_LOAD_COST]
+        if load_stages:
+            average_load = sum(loads[s] for s in load_stages) / len(load_stages)
+        else:
+            average_load = DEFAULT_LOAD_SECONDS
+
+        remaining = 0.0
+        for stage in self.stages:
+            if self.done[stage] == self.n:
+                continue
+            elif stage in rates:
+                remaining += (self.n - self.done[stage]) * rates[stage]
+            else:
+                remaining += (self.n - self.done[stage]) * self.cost[stage] * speed_factor
+                if self.done[stage] == 0 and self.cost[stage] >= MIN_LOAD_COST:
+                    remaining += average_load
+
+        return max(0.0, remaining)
 
     def finish_at(self, now=None):
         remaining = self.remaining_seconds()
