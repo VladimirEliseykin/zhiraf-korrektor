@@ -19,7 +19,7 @@ DOCUMENT_XML = "word/document.xml"
 STYLES_XML = "word/styles.xml"
 HEADING_NAME = re.compile(r"^(heading|заголовок)\s*(\d)$", re.I)
 # documents come from outside: no entity expansion, no external DTDs
-PARSER = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=True)
+PARSER = etree.XMLParser(resolve_entities=False, no_network=True)
 
 
 def q(tag):
@@ -123,7 +123,7 @@ def _flag(rpr, tag):
     el = rpr.find(q(tag)) if rpr is not None else None
     if el is None:
         return False
-    return el.get(q("val"), "true").lower() not in ("0", "false", "none")
+    return el.get(q("val"), "true").lower() not in ("0", "false", "off", "none")
 
 
 def _run_format(run):
@@ -163,16 +163,47 @@ def load_package(path):
     """(document root element, styles xml bytes or None); DocumentError with a user message."""
     try:
         with zipfile.ZipFile(path) as z:
+            # Check file sizes before reading
+            for info in z.infolist():
+                if info.file_size > 100 * 1024 * 1024:
+                    raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+
             document = z.read(DOCUMENT_XML)
             styles = z.read(STYLES_XML) if STYLES_XML in z.namelist() else None
-        return etree.fromstring(document, PARSER), styles
-    except (zipfile.BadZipFile, KeyError, etree.XMLSyntaxError, OSError):
+
+        # Check for DOCTYPE which enables entity attacks
+        if b"<!DOCTYPE" in document:
+            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
+
+        # Parse document
+        root = etree.fromstring(document, PARSER)
+
+        # Check that w:body exists
+        body = root.find(q("body"))
+        if body is None:
+            raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+
+        # Parse and extract style names
+        names = {}
+        if styles:
+            if b"<!DOCTYPE" in styles:
+                raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
+            styles_root = etree.fromstring(styles, PARSER)
+            for style in styles_root.iter(q("style")):
+                name = style.find(q("name"))
+                if style.get(q("styleId")) and name is not None:
+                    names[style.get(q("styleId"))] = name.get(q("val"), "")
+
+        return root, names
+    except DocumentError:
+        raise
+    except (zipfile.BadZipFile, KeyError, etree.XMLSyntaxError, OSError, ValueError,
+            RuntimeError, NotImplementedError, EOFError, RecursionError):
         raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
 
 
 def read_docx(path):
-    root, styles = load_package(path)
-    names = _style_names(styles)
+    root, names = load_package(path)
     paragraphs = []
     for p, position in iter_paragraphs(root.find(q("body"))):
         slots, image = paragraph_slots(p)

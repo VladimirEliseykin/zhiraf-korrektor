@@ -76,3 +76,102 @@ def test_broken_file_gives_user_message(tmp_path):
 
 def test_opener_knows_docx(tmp_path):
     assert opener.open_document(make_docx(tmp_path / "a.docx", P(R("Текст")))).paragraphs[0].text == "Текст"
+
+
+def test_missing_body_gives_error(tmp_path):
+    """Missing w:body should raise DocumentError."""
+    import zipfile
+    path = str(tmp_path / "bad.docx")
+    make_docx(tmp_path / "bad.docx", P(R("text")))
+
+    # Corrupt by removing w:body
+    with zipfile.ZipFile(path, 'r') as z:
+        entries = {i.filename: z.read(i.filename) for i in z.infolist()}
+    doc_xml = entries['word/document.xml']
+    corrupted = doc_xml.replace(b'<w:body>', b'<w:notbody>')
+    corrupted = corrupted.replace(b'</w:body>', b'</w:notbody>')
+    entries['word/document.xml'] = corrupted
+    with zipfile.ZipFile(path, 'w') as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+
+    with pytest.raises(DocumentError) as e:
+        read_docx(path)
+    assert "bad.docx" in str(e.value)
+
+
+def test_corrupt_styles_gives_error(tmp_path):
+    """Corrupt styles.xml should raise DocumentError."""
+    import zipfile
+    path = str(tmp_path / "bad.docx")
+    make_docx(tmp_path / "bad.docx", P(R("Текст")))
+
+    # Corrupt styles.xml
+    with zipfile.ZipFile(path, 'r') as z:
+        entries = {i.filename: z.read(i.filename) for i in z.infolist()}
+    entries['word/styles.xml'] = b"not valid xml"
+    with zipfile.ZipFile(path, 'w') as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+
+    with pytest.raises(DocumentError) as e:
+        read_docx(path)
+    assert "bad.docx" in str(e.value)
+
+
+def test_doctype_in_document_gives_error(tmp_path):
+    """Document with DOCTYPE should raise DocumentError."""
+    import zipfile
+    path = str(tmp_path / "bad.docx")
+    make_docx(tmp_path / "bad.docx", P(R("Текст")))
+
+    # Add DOCTYPE to document.xml
+    with zipfile.ZipFile(path, 'r') as z:
+        entries = {i.filename: z.read(i.filename) for i in z.infolist()}
+    doc_xml = entries['word/document.xml']
+    corrupted = doc_xml.replace(b"?>", b"""?><!DOCTYPE w:document [
+    <!ENTITY e "entity">
+]>""")
+    entries['word/document.xml'] = corrupted
+    with zipfile.ZipFile(path, 'w') as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+
+    with pytest.raises(DocumentError) as e:
+        read_docx(path)
+    assert "неподдерживаемые конструкции" in str(e.value)
+
+
+def test_bold_off_attribute(tmp_path):
+    """<w:b w:val="off"/> should read as not bold."""
+    bold_off = '<w:r><w:rPr><w:b w:val="off"/></w:rPr><w:t>текст</w:t></w:r>'
+    doc = read_docx(make_docx(tmp_path / "a.docx", P(bold_off)))
+    assert doc.paragraphs[0].spans[0].bold is False
+
+
+def test_slot_text_equals_paragraph_text_invariant(tmp_path):
+    """For any paragraph, concatenated slot texts should equal Paragraph.text."""
+    from zhiraf.documents.docx_format import iter_paragraphs, paragraph_slots, q, PARSER
+    from docfactory import zip_entries
+    from lxml import etree
+
+    path = make_docx(tmp_path / "a.docx",
+                     P(R("Основной "), TAB, R("текст"), BR, R("и ещё")),
+                     table([[P(R("Ячейка1")), P(R("Ячейка2"))]]),
+                     P(R("После")))
+    doc = read_docx(path)
+
+    # Parse and iterate through the same document to get paragraphs and slots
+    z = zip_entries(path)
+    doc_xml = z['word/document.xml']
+    root = etree.fromstring(doc_xml, PARSER)
+
+    # Build mapping of slot_text -> expected doc paragraph
+    para_idx = 0
+    for w_p, position in iter_paragraphs(root.find(q("body"))):
+        slots, _ = paragraph_slots(w_p)
+        slot_text = "".join(slot.text for slot in slots)
+        if para_idx < len(doc.paragraphs):
+            dp = doc.paragraphs[para_idx]
+            assert dp.text == slot_text, f"Paragraph {para_idx}: '{slot_text}' != '{dp.text}'"
+            para_idx += 1
