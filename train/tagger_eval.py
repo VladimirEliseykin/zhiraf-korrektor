@@ -11,6 +11,10 @@ import re
 import sys
 
 SPIKE = "/home/general/vm/win7/spike"
+# Pin the engine of THIS checkout first: spike/guards.py (read from the main checkout's spike folder) imports
+# spellcheck through its own checkout's engine path, and whichever copy is imported first stays for the process.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "engine"))
+import spellcheck  # noqa: E402,F401
 sys.path.insert(0, SPIKE)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench  # noqa: E402

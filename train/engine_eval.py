@@ -43,6 +43,7 @@ def edits_of(item, findings, level):
 def main():
     models_dir, out_path = sys.argv[1], sys.argv[2]
     threads = int(sys.argv[3]) if len(sys.argv) > 3 else 4
+    print("engine:", checker.__file__, flush=True)
     sets = bench.load_sets()
     by_doc, official_doc = documents()
     engine = checker.Checker(models_dir, threads)
