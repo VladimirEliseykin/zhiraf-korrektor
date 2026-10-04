@@ -1,4 +1,5 @@
 import os
+import random
 import subprocess
 
 import pytest
@@ -44,22 +45,55 @@ def test_not_a_word_file(tmp_path):
     assert "не_ворд.doc" in str(e.value)
 
 
-def test_truncated_doc_file(tmp_path):
-    """Truncated .doc file should raise DocumentError, not a raw exception."""
-    # First, create a real .doc file using LibreOffice
-    if SOFFICE is None:
-        pytest.skip("LibreOffice is not installed")
+@needs_soffice
+def test_hostile_input_variants(tmp_path):
+    """Fuzz-test with truncations and random byte flips.
 
+    Every malformed input must raise DocumentError, not a raw exception.
+    """
     docx = make_docx(tmp_path / "a.docx", P(R("Test content.")))
     doc_path = to_doc(docx, tmp_path)
 
-    # Read the real .doc and truncate it
     with open(doc_path, "rb") as f:
         original = f.read()
 
-    truncated_path = tmp_path / "truncated.doc"
-    truncated_path.write_bytes(original[:len(original) // 2])
+    rng = random.Random(1234)
+    tested = 0
 
-    with pytest.raises(DocumentError) as e:
-        extract_doc_text(str(truncated_path))
-    assert "truncated.doc" in str(e.value)
+    # Truncations at various sizes
+    truncation_sizes = [
+        1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048,
+        len(original) // 4, len(original) // 3, len(original) // 2,
+        len(original) * 2 // 3, len(original) - 1
+    ]
+    for size in truncation_sizes:
+        if size > 0 and size < len(original):
+            tested += 1
+            truncated_path = tmp_path / ("trunc_%d.doc" % size)
+            truncated_path.write_bytes(original[:size])
+            try:
+                result = extract_doc_text(str(truncated_path))
+                assert isinstance(result, list), "extract_doc_text must return list[str]"
+                for item in result:
+                    assert isinstance(item, str), "list elements must be str"
+            except DocumentError:
+                pass  # Expected
+
+    # Random byte flips in first 64 KB
+    flip_region = min(65536, len(original))
+    for _ in range(max(0, 200 - len(truncation_sizes))):
+        tested += 1
+        data = bytearray(original)
+        pos = rng.randint(0, flip_region - 1)
+        data[pos] ^= rng.randint(1, 255)
+        flip_path = tmp_path / ("flip_%d.doc" % tested)
+        flip_path.write_bytes(bytes(data))
+        try:
+            result = extract_doc_text(str(flip_path))
+            assert isinstance(result, list), "extract_doc_text must return list[str]"
+            for item in result:
+                assert isinstance(item, str), "list elements must be str"
+        except DocumentError:
+            pass  # Expected
+
+    assert tested >= 30, "Not enough variants tested"

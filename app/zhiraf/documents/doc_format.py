@@ -11,7 +11,8 @@ import olefile
 
 from .model import DocumentError
 
-FIB_FLAGS, FIB_CCP_TEXT, FIB_FC_CLX = 0x000A, 0x004C, 0x01A2
+FIB_WIDENT, FIB_FLAGS, FIB_CCP_TEXT, FIB_FC_CLX = 0x0000, 0x000A, 0x004C, 0x01A2
+WIDENT_WORD97 = 0xA5EC
 FLAG_ENCRYPTED, FLAG_TABLE1 = 0x0100, 0x0200
 FIELD_BEGIN, FIELD_SEPARATE, FIELD_END = "\x13", "\x14", "\x15"
 PARAGRAPH_ENDS = {"\r", "\x07", "\x0c"}         # paragraph, table cell / row, page or section break
@@ -24,10 +25,7 @@ def _fail(path, why):
 
 
 def _streams(path):
-    try:
-        ole = olefile.OleFileIO(path)
-    except (OSError, IOError):
-        raise _fail(path, "это не документ Word или файл повреждён")
+    ole = olefile.OleFileIO(path)
     try:
         if not ole.exists("WordDocument"):
             raise _fail(path, "это не документ Word")
@@ -89,21 +87,20 @@ def _paragraphs(text):
 def extract_doc_text(path):
     try:
         word, table = _streams(path)
-    except DocumentError:
-        raise
-    except (struct.error, IndexError, KeyError) as e:
-        raise _fail(path, "файл повреждён")
-    try:
+        wident = struct.unpack_from("<H", word, FIB_WIDENT)[0]
+        if wident != WIDENT_WORD97:
+            raise _fail(path, "это не документ Word 97–2003")
         ccp_text = struct.unpack_from("<i", word, FIB_CCP_TEXT)[0]
+        if ccp_text < 0:
+            raise _fail(path, "файл повреждён")
         fc_clx, lcb_clx = struct.unpack_from("<II", word, FIB_FC_CLX)
-    except struct.error:
-        raise _fail(path, "файл повреждён")
-    if fc_clx + lcb_clx > len(table):
-        raise _fail(path, "файл повреждён")
-    try:
+        if fc_clx + lcb_clx > len(table):
+            raise _fail(path, "файл повреждён")
         text = "".join(_pieces(word, table[fc_clx:fc_clx + lcb_clx], path))
+        return _paragraphs(text[:ccp_text])                # main document only: no headers, footnotes
     except DocumentError:
         raise
-    except (struct.error, IndexError, KeyError) as e:
+    except MemoryError:
+        raise
+    except Exception:
         raise _fail(path, "файл повреждён")
-    return _paragraphs(text[:ccp_text])                # main document only: no headers, footnotes
