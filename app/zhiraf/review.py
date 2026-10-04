@@ -69,13 +69,22 @@ class ReviewSession:
         self.marks = []
         self.current = None
         self._next_id = 1
-        self._undo = []  # groups of (mark, previous status, previous applied)
+        self._by_par = {}   # paragraph -> its marks sorted by _key (index over self.marks)
+        self._versions = {}
+        # groups of ([(mark, previous status, previous applied), ...], word added to the dictionary or None)
+        self._undo = []
+
+    def version(self, paragraph):
+        return self._versions.get(paragraph, 0)
 
     # --- findings arriving from the check ---
 
-    def add_findings(self, paragraph, offset, findings):
+    def add_findings(self, paragraph, offset, findings, version=None):
         added = []
+        if version is not None and version != self.version(paragraph):
+            return added
         text = self.originals[paragraph]
+        local = self._by_par.setdefault(paragraph, [])
         for f in findings:
             if f.get("level") not in LEVEL_RANK:
                 continue
@@ -83,7 +92,7 @@ class ReviewSession:
             original = text[start:end]
             if self.dictionary is not None and original.strip() and original.strip() in self.dictionary:
                 continue
-            clash = [m for m in self.marks if m.paragraph == paragraph and _overlaps(start, end, m.start, m.end)]
+            clash = [m for m in local if _overlaps(start, end, m.start, m.end)]
             if any(m.status != OPEN for m in clash):
                 continue  # the reader has already decided about this place
             mark = Mark(self._next_id, paragraph, start, end, f["level"], f["rule"], f.get("fix"),
@@ -95,7 +104,10 @@ class ReviewSession:
                 if self.current is m:
                     self.current = mark
                 self.marks.remove(m)
+                local.remove(m)
             self.marks.append(mark)
+            local.append(mark)
+            local.sort(key=_key)
             added.append(mark)
         self.marks.sort(key=_key)
         if self.current is None:
@@ -137,7 +149,7 @@ class ReviewSession:
 
     # --- decisions ---
 
-    def _change(self, marks, status, texts):
+    def _change(self, marks, status, texts, word=None):
         group, edits = [], []
         for mark, text in zip(marks, texts):
             if status in APPLIED:
@@ -146,7 +158,7 @@ class ReviewSession:
             group.append((mark, mark.status, mark.applied))
             mark.status, mark.applied = status, (text if status in APPLIED else None)
         if group:
-            self._undo.append(group)
+            self._undo.append((group, word))
         return edits
 
     def accept(self):
@@ -161,6 +173,8 @@ class ReviewSession:
         mark = self.current
         if mark is None:
             return []
+        if text == mark.original:
+            return self.skip()
         edits = self._change([mark], MANUAL, [text])
         self.go_next()
         return edits
@@ -182,7 +196,7 @@ class ReviewSession:
             self.dictionary.add(word)
         same = [m for m in self.marks
                 if m.status == OPEN and m.can_add_to_dictionary and m.original.strip().lower() == word.lower()]
-        self._change(same, DICTIONARY, [None] * len(same))
+        self._change(same, DICTIONARY, [None] * len(same), word=word)
         self.go_next()
         return word
 
@@ -196,7 +210,9 @@ class ReviewSession:
     def undo(self):
         if not self._undo:
             return []
-        group = self._undo.pop()
+        group, word = self._undo.pop()
+        if word is not None and self.dictionary is not None:
+            self.dictionary.remove(word)
         edits = []
         for mark, status, applied in reversed(group):
             if mark.status in APPLIED:
@@ -212,8 +228,8 @@ class ReviewSession:
 
     def to_current(self, paragraph, pos, exclude=None):
         shift = 0
-        for m in self.marks:
-            if m.paragraph == paragraph and m.status in APPLIED and m is not exclude and m.end <= pos:
+        for m in self._by_par.get(paragraph, ()):
+            if m.status in APPLIED and m is not exclude and m.end <= pos:
                 shift += len(m.applied) - (m.end - m.start)
         return pos + shift
 
@@ -224,7 +240,8 @@ class ReviewSession:
 
     def text(self, paragraph):
         return apply_replacements(self.originals[paragraph],
-                                  [r for r in self.replacements() if r.paragraph == paragraph])
+                                  [Replacement(m.paragraph, m.start, m.end, m.applied)
+                                   for m in self._by_par.get(paragraph, ()) if m.status in APPLIED])
 
     def replacements(self):
         return [Replacement(m.paragraph, m.start, m.end, m.applied) for m in self.marks if m.status in APPLIED]
@@ -239,10 +256,12 @@ class ReviewSession:
     def replace_paragraph(self, paragraph, new_text):
         """The reader typed in this paragraph (pasted text only): its marks and their history go away."""
         self.originals[paragraph] = new_text
-        gone = [m for m in self.marks if m.paragraph == paragraph]
+        self._versions[paragraph] = self.version(paragraph) + 1
+        gone = self._by_par.pop(paragraph, [])
+        gone_ids = {id(m) for m in gone}
         self.marks = [m for m in self.marks if m.paragraph != paragraph]
-        self._undo = [[e for e in group if e[0] not in gone] for group in self._undo]
-        self._undo = [group for group in self._undo if group]
-        if self.current in gone:
+        undo = [([e for e in entries if id(e[0]) not in gone_ids], word) for entries, word in self._undo]
+        self._undo = [(entries, word) for entries, word in undo if entries]
+        if self.current is not None and id(self.current) in gone_ids:
             self.current = None
             self.go_next()

@@ -129,3 +129,44 @@ def test_replace_paragraph_forgets_its_marks():
     s.replace_paragraph(0, "Совсем новый текст")
     assert s.marks == [] and s.current is None and s.text(0) == "Совсем новый текст"
     assert s.undo() == []
+
+
+def test_manual_with_the_original_text_is_a_skip():
+    s = session()
+    s.go_next()
+    s.go_next()
+    assert s.manual("информации") == []
+    assert s.marks[2].status == SKIPPED and s.replacements() == [] and s.text(0) == TEXT
+
+
+def test_undo_of_add_to_dictionary_removes_the_word(tmp_path):
+    d = Dictionary(str(tmp_path / "d.txt"))
+    s = ReviewSession(["Слово ИСПДн и опять ИСПДн тут"], d)
+    s.add_findings(0, 0, [f(6, 11, None, level="check", rule="RULE_TYPO"), f(20, 25, None, level="check", rule="RULE_TYPO")])
+    s.add_to_dictionary()
+    assert s.undo() == []
+    assert "испдн" not in d and [m.status for m in s.marks] == [OPEN, OPEN]
+
+
+def test_findings_of_an_old_paragraph_version_are_dropped():
+    s = ReviewSession(["Так же"])
+    assert s.version(0) == 0
+    s.replace_paragraph(0, "Так же тут")
+    assert s.version(0) == 1
+    assert s.add_findings(0, 0, [f(0, 6, "Также")], version=0) == [] and s.marks == []
+    assert len(s.add_findings(0, 0, [f(0, 6, "Также")], version=1)) == 1
+
+
+def test_many_marks_are_handled_fast():
+    import time
+    s = ReviewSession(["0123456789" * 3] * 300)
+    for p in range(300):
+        s.add_findings(p, 0, [f(i * 3, i * 3 + 2, "xyz") for i in range(10)])
+    assert len(s.marks) == 3000
+    t = time.monotonic()
+    assert len(s.accept_all_errors()) == 3000
+    assert time.monotonic() - t < 1
+    t = time.monotonic()
+    assert len(s.undo()) == 3000
+    assert time.monotonic() - t < 1
+    assert s.counts()["errors"] == 3000
