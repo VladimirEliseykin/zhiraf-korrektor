@@ -163,20 +163,29 @@ def load_package(path):
     """(document root element, styles xml bytes or None); DocumentError with a user message."""
     try:
         with zipfile.ZipFile(path) as z:
-            # Check file sizes before reading
-            for info in z.infolist():
-                if info.file_size > 100 * 1024 * 1024:
-                    raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+            # Check file sizes before reading (only for parts we actually parse)
+            for name in (DOCUMENT_XML, STYLES_XML):
+                try:
+                    info = z.getinfo(name)
+                    if info.file_size > 100 * 1024 * 1024:
+                        raise DocumentError("Не удалось открыть «%s»: файл повреждён или защищён паролем." % os.path.basename(path))
+                except KeyError:
+                    pass  # STYLES_XML is optional
 
             document = z.read(DOCUMENT_XML)
             styles = z.read(STYLES_XML) if STYLES_XML in z.namelist() else None
 
-        # Check for DOCTYPE which enables entity attacks
+        # Check for DOCTYPE which enables entity attacks (byte check first, fast path)
         if b"<!DOCTYPE" in document:
             raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
 
         # Parse document
         root = etree.fromstring(document, PARSER)
+
+        # Check for DOCTYPE in parsed tree (catches UTF-16 and other encodings)
+        # docinfo.doctype is empty string for normal docs, non-empty for docs with DOCTYPE
+        if root.getroottree().docinfo.doctype:
+            raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
 
         # Check that w:body exists
         body = root.find(q("body"))
@@ -189,6 +198,8 @@ def load_package(path):
             if b"<!DOCTYPE" in styles:
                 raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
             styles_root = etree.fromstring(styles, PARSER)
+            if styles_root.getroottree().docinfo.doctype:
+                raise DocumentError("Не удалось открыть «%s»: документ содержит неподдерживаемые конструкции XML." % os.path.basename(path))
             for style in styles_root.iter(q("style")):
                 name = style.find(q("name"))
                 if style.get(q("styleId")) and name is not None:

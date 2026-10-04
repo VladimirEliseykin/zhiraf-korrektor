@@ -166,12 +166,49 @@ def test_slot_text_equals_paragraph_text_invariant(tmp_path):
     doc_xml = z['word/document.xml']
     root = etree.fromstring(doc_xml, PARSER)
 
-    # Build mapping of slot_text -> expected doc paragraph
-    para_idx = 0
+    # Collect all paragraphs from XML walk
+    xml_paragraphs = []
     for w_p, position in iter_paragraphs(root.find(q("body"))):
         slots, _ = paragraph_slots(w_p)
         slot_text = "".join(slot.text for slot in slots)
-        if para_idx < len(doc.paragraphs):
-            dp = doc.paragraphs[para_idx]
-            assert dp.text == slot_text, f"Paragraph {para_idx}: '{slot_text}' != '{dp.text}'"
-            para_idx += 1
+        xml_paragraphs.append(slot_text)
+
+    # Assert counts match
+    assert len(xml_paragraphs) == len(doc.paragraphs), \
+        f"Paragraph count mismatch: XML has {len(xml_paragraphs)}, model has {len(doc.paragraphs)}"
+
+    # Compare every pair
+    for i, (xml_text, dp) in enumerate(zip(xml_paragraphs, doc.paragraphs)):
+        assert dp.text == xml_text, f"Paragraph {i}: model='{dp.text}' != xml='{xml_text}'"
+
+
+def test_doctype_in_utf16_document_gives_error(tmp_path):
+    """Document with DOCTYPE in UTF-16 encoding should be refused (byte check bypassed)."""
+    import zipfile
+    path = str(tmp_path / "bad.docx")
+    make_docx(tmp_path / "bad.docx", P(R("Текст")))
+
+    # Add DOCTYPE to document.xml and encode as UTF-16
+    with zipfile.ZipFile(path, 'r') as z:
+        entries = {i.filename: z.read(i.filename) for i in z.infolist()}
+
+    # Get the original document
+    doc_xml = entries['word/document.xml']
+    # Decode as UTF-8, modify, encode as UTF-16
+    doc_str = doc_xml.decode('utf-8')
+    doc_str = doc_str.replace("?>", """?><!DOCTYPE w:document [
+    <!ENTITY e "entity">
+]>""")
+    # Encode as UTF-16 with BOM
+    doc_utf16 = b'\xff\xfe' + doc_str.encode('utf-16-le')
+    # Update XML declaration to match encoding
+    doc_utf16 = doc_utf16.replace(b'encoding="UTF-8"', b'encoding="UTF-16"')
+
+    entries['word/document.xml'] = doc_utf16
+    with zipfile.ZipFile(path, 'w') as z:
+        for name, data in entries.items():
+            z.writestr(name, data)
+
+    with pytest.raises(DocumentError) as e:
+        read_docx(path)
+    assert "неподдерживаемые конструкции" in str(e.value)
