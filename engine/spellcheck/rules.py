@@ -23,6 +23,11 @@ PRONOUN_TO = ("кто|что|какой|какая|какое|какие|как�
 INDEFINITE = re.compile(r"\b(%s) (то|либо|нибудь)\b(?![,:])" % PRONOUN_TO, re.I)
 KOE = re.compile(r"\b(кое) (кто|что|как|где|когда|куда|какой\w*|какая|какое|какие|чей\w*|кого|кому|чем|чего|ком)\b", re.I)
 TAK_ZHE = re.compile(r"\b([Тт]ак) же\b")
+IZ_ZA = re.compile(r"\b([Ии]з) (за|под)\b")
+# "локально-вычислительная сеть": a hyphenated adverb stands for the adjective "локальная вычислительная"
+LOCAL_NET = re.compile(r"\b([Лл]окальн)о-(вычислительн)([а-яё]+)\b")
+# a short participle with a dependent ("связанны с ...") written with two "н" like the full form
+DOUBLE_N = re.compile(r"\b([а-яё]{3,}[аеёяи]н)(н[ыао])(?=\s+(?:с|со|на|в|во|из|по|для|к|от|за|при|между|под|над)\b)", re.I)
 GLUED_DIGIT = re.compile(r"\b([А-ЯЁа-яё][а-яё]{2,})(\d+)\b")
 NUM_ADJ = re.compile(r"\b(\d+) ((?:часов|летн|дневн|месячн|недельн|кратн|процентн|минутн|секундн|разрядн|битн|"
                      r"байтн|ядерн|этажн|комнатн|уровнев|факторн|значн|потоков|канальн)[а-яё]*)\b")
@@ -51,6 +56,7 @@ CAPITAL_OK = re.compile(r"^(Российск|Федераци|Президент
 NAME_TAGS = ("Name", "Surn", "Patr", "Geox", "Orgn", "Trad", "Abbr", "Init")
 
 
+GLUE_MIN = 20  # least corpus frequency of each part of a glued pair
 ALPHABET = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 COMPOUND_PREFIX = re.compile(r"^(кибер|нано|нейро|крипто|био|эко|медиа|видео|аудио|теле|радио|авто|микро|макро|"
                              r"мега|гига|тера|экза|мини|мульти|анти|контр|псевдо|квази|супер|гипер|интер|транс|"
@@ -81,15 +87,47 @@ class Lexicon:
         return morph.word_is_known(word.lower()) and (self.unknown is None or word not in self.unknown)
 
     def suggest(self, word):
-        """Most frequent known word within one or two letter edits, or None (then it is likely a term)."""
+        """Most frequent known word one letter edit away, or None (then it is likely a term or a name).
+
+        The first letter must survive (a changed first letter is nearly always another word, a prefix
+        like "не-", "до-", "гос-", or a loan), and two-letter edits are not tried: on rare valid words they
+        hit a frequent neighbour far more often than they find a real typo (measured: false marks fall
+        by two thirds, real typos found fall by a fifth). "э" for "е" is a variant ("хэш"), not a typo."""
         w = word.lower()
-        e1 = edits1(w)
-        best = max((c for c in e1 if c in self.freq), key=self.freq.get, default=None)
-        if best is None and len(w) >= 6:
-            best = max((c for e in e1 for c in edits1(e) if c in self.freq), key=self.freq.get, default=None)
+        best = max((c for c in edits1(w) if c in self.freq and (c[0] == w[0] or c[1:] == w)
+                    and c.replace("э", "е") != w.replace("э", "е")),
+                   key=self.freq.get, default=None)
         if best is None:
             return None
         return best.capitalize() if word[0].isupper() else best
+
+    def split_glued(self, word):
+        """(fix, message) when an unknown word is two known words typed without a separator
+        ("правилаработы") or a pair of adjectives that needs a hyphen ("научнотехнического"),
+        otherwise None. The split with the rarer part being the most frequent wins."""
+        w = word.lower()
+        best, score = None, GLUE_MIN - 1
+        for k in range(4, len(w) - 3):
+            a, b = w[:k], w[k:]
+            if morph.word_is_known(a) and morph.word_is_known(b):
+                s = min(self.freq.get(a, 0), self.freq.get(b, 0))
+                if s > score:
+                    best, score = (a, b), s
+        if best is None:
+            return None
+        a, b = best
+        if word[0].isupper():
+            a = a.capitalize()
+        if best[0].endswith("о"):
+            stem = best[0][:-1]
+            adjective = any(p.tag.POS == "ADJF" and p.normal_form == stem + end
+                            for end in ("ый", "ий", "ой") for p in morph.parse(stem + end))
+            if adjective and any(p.tag.POS == "ADJF" for p in morph.parse(b)):
+                return "%s-%s" % (a, b), "Сложное прилагательное пишется через дефис"
+            return None  # a compound with a connecting vowel ("водоснабжение"), not two words
+        if morph.parse(a)[0].tag.POS in ("ADVB", "PREP", "CONJ", "PRCL"):
+            return None  # "среднегодовой", "внутриклеточный": a prefix of a compound, not a word
+        return "%s %s" % (a, b), "Слова написаны слитно"
 
 
 def edits1(w):
@@ -141,6 +179,22 @@ def mixed_script(m, w, lexicon):
     return finding(m, 0, "check", "MIXED_SCRIPT", None, "В слове смешаны латинские и русские буквы")
 
 
+def bare_participle(parses, prev, tail):
+    """A participle after "не" with no dependents: the next word is the noun it agrees with
+    ("не выполненных работ") or a verb ("не оплаченные поступили"), and no adverb of degree or
+    time precedes ("ещё не выполненных" keeps "не" apart). Then it is written together with "не"."""
+    if any(p.tag.POS == "ADVB" for p in morph.parse(prev.strip(",").lower())[:1]):
+        return False
+    m = re.match(r"\s+([а-яё]+)", tail)
+    if not m:
+        return False
+    following = morph.parse(m.group(1))
+    if following and all(p.tag.POS == "VERB" for p in following):
+        return True
+    return any(n.tag.POS == "NOUN" and n.tag.case == p.tag.case and n.tag.number == p.tag.number
+               for n in following for p in parses if p.tag.POS in ("PRTF", "ADJF") and p.tag.case)
+
+
 def finding(m, group, level, rule, fix, message):
     s, e = m.span(group)
     return {"start": s, "end": e, "level": level, "rule": rule, "fix": fix, "message": message}
@@ -181,6 +235,12 @@ def check(text, lexicon, ctx=None):
         sure = not prev or prev[-1] in ".!?" or prev.endswith(" а") or prev.endswith(",а") or prev.endswith(", а")
         out.append(finding(m, 0, "error" if sure else "check", "TAKZHE", m.group(1) + "же",
                            "«Также» (= тоже, кроме того) пишется слитно; раздельно — только «так же, как»"))
+    for m in IZ_ZA.finditer(text):
+        out.append(finding(m, 0, "error", "IZ_ZA", "%s-%s" % (m.group(1), m.group(2)),
+                           "«Из-за», «из-под» пишутся через дефис"))
+    for m in LOCAL_NET.finditer(text):
+        out.append(finding(m, 0, "error", "LOCAL_NET", "%s%s %s%s" % (m.group(1), m.group(3), m.group(2), m.group(3)),
+                           "Правильно: «локальная вычислительная сеть», без дефиса"))
     for m in GLUED_DIGIT.finditer(text):
         out.append(finding(m, 0, "error", "GLUED_DIGIT", "%s %s" % (m.group(1), m.group(2)),
                            "Между словом и числом нужен пробел"))
@@ -205,15 +265,19 @@ def check(text, lexicon, ctx=None):
         if prev[0].lower().strip(",") in NE_BLOCKERS | {"но", "а"}:
             continue  # "далеко не однозначными", contrast "но не исходная"
         parses = morph.parse(word)
-        # participles in documents nearly always carry dependents ("не предусмотренные законом") and
-        # are then written apart; comparatives ("не позднее") likewise
-        if not parses or parses[0].tag.POS not in ("ADJF", "ADJS") or any(p.tag.POS == "PRTF" for p in parses) \
+        participle = any(p.tag.POS == "PRTF" for p in parses)
+        # participles in documents often carry dependents ("не предусмотренные законом") and are then
+        # written apart, so one is taken only when it stands bare (see bare_participle);
+        # comparatives ("не позднее") are written apart as well
+        if not parses or parses[0].tag.POS not in ("ADJF", "ADJS", "PRTF") \
                 or any("Cmp2" in p.tag or "COMP" in p.tag for p in parses) or word in NE_GOVERNING \
                 or word in ("позднее", "ранее", "более", "менее"):
             continue
         nxt = text[m.end():].split()[:1]
         if nxt and any(p.tag.POS == "PREP" for p in morph.parse(nxt[0].strip(",.;:"))):
             continue  # a dependent follows: "не согласные с заключением", "не знакомы с инструментом"
+        if participle and not bare_participle(parses, prev[0], text[m.end():]):
+            continue
         joined = m.group(1) + word
         tail = text[m.end():m.end() + 60]
         if not lexicon.known_strict(joined) or re.match(r"[^.;]*?,?\s+а\s", tail):
@@ -224,6 +288,11 @@ def check(text, lexicon, ctx=None):
     # --- spelling ---
     for m in IH_NIH.finditer(text):
         out.append(finding(m, 0, "error", "IH_NIH", "%sз %s" % (m.group(1), m.group(2)), "Опечатка: «из них»"))
+    for m in DOUBLE_N.finditer(text):
+        single = m.group(1) + m.group(2)[1:]
+        if any(p.tag.POS == "PRTS" for p in morph.parse(single.lower())) \
+                and not any(p.tag.POS in ("PRTS", "ADVB") for p in morph.parse(m.group(0).lower())):
+            out.append(finding(m, 0, "error", "PRTS_NN", single, "Краткое причастие пишется с одной «н»"))
     for m in DOUBLE.finditer(text):
         out.append(finding(m, 0, "error", "DOUBLE_WORD", m.group(1), "Слово повторено дважды"))
     for m in HARD_SIGN_END.finditer(text):
@@ -243,6 +312,10 @@ def check(text, lexicon, ctx=None):
         if any(c.isupper() for c in w):
             continue  # names and abbreviations (a sentence may start with a surname split off its initials)
         if w.endswith("ъ") or all(lexicon.known(p) for p in w.split("-") if p) or lexicon.known(w):
+            continue
+        glued = None if "-" in w else lexicon.split_glued(w)
+        if glued:
+            out.append(finding(m, 0, "check", "GLUED_WORDS", glued[0], glued[1]))
             continue
         fix = lexicon.suggest(w)
         if fix is None:

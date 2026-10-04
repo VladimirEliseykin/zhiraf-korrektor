@@ -75,6 +75,21 @@ class Sage:
         return postprocess(text, self.tokenizer.decode(generated, skip_special_tokens=True))
 
 
+def typo_like(x, y):
+    """A slip of the keys: one letter edit, and the first letter kept (or only a dropped one
+    restored). Another first letter or a stripped prefix ("асимметрично" -> "симметрично") is another word."""
+    x, y = x.lower(), y.lower()
+    if x[:1] != y[:1] and x != y[1:]:
+        return False
+    previous = list(range(len(y) + 1))
+    for i, cx in enumerate(x, 1):
+        row = [i]
+        for j, cy in enumerate(y, 1):
+            row.append(min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (cx != cy)))
+        previous = row
+    return previous[-1] <= 1
+
+
 def edit_class(before, after, lexicon):
     b, a = before.strip(), after.strip()
     if WORD.findall(b) and WORD.findall(a):
@@ -84,7 +99,8 @@ def edit_class(before, after, lexicon):
         if inner and re.sub(r"[\s-]", "", b) == re.sub(r"[\s-]", "", a) and b != a:
             return "join"
         if any(not lexicon.known(w) for w in WORD.findall(b)) and all(lexicon.known(w) for w in WORD.findall(a)) \
-                and len(WORD.findall(b)) == len(WORD.findall(a)):
+                and len(WORD.findall(b)) == len(WORD.findall(a)) \
+                and all(typo_like(x, y) for x, y in zip(WORD.findall(b), WORD.findall(a)) if x != y):
             return "typo"
     return "other"
 
