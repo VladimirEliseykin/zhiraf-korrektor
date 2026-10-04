@@ -3,6 +3,8 @@
 Words are regex tokens of the sentence. For every word the tagger predicts:
   comma label: KEEP | ADD (a comma must follow the word) | DEL (the comma after it is wrong)
   form label:  KEEP | "case:gent", "number:plur", "case:datv|number:plur", ... (grammemes to restore)
+  spell label: KEEP | JOIN (join with the next word) | HYPHEN (join with a hyphen) | SPLIT (split off "не")
+               | LOWER | UPPER (first letter of this word); optional, see corrupt_spell()
 corrupt() returns the corrupted text and the labels that turn it back into the clean text.
 """
 import os
@@ -12,12 +14,16 @@ import sys
 
 # word segmentation and inflection come from the engine: labels must align with what the checker splits
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "engine"))
+from spellcheck.guards import BIBLIOGRAPHY, LIST_MARKER, protected, quoted_spans  # noqa: E402
 from spellcheck.morph import morph  # noqa: E402
 from spellcheck.text import WORD, inflect, words_of  # noqa: E402,F401
 
 CASES = ("nomn", "gent", "datv", "accs", "ablt", "loct")
 COMMA_KEEP, COMMA_ADD, COMMA_DEL = "KEEP", "ADD", "DEL"
 FORM_KEEP = "KEEP"
+SPELL_KEEP, SPELL_JOIN, SPELL_HYPHEN, SPELL_SPLIT, SPELL_LOWER, SPELL_UPPER = \
+    "KEEP", "JOIN", "HYPHEN", "SPLIT", "LOWER", "UPPER"
+SPELL_LABELS = [SPELL_KEEP, SPELL_JOIN, SPELL_HYPHEN, SPELL_SPLIT, SPELL_LOWER, SPELL_UPPER]
 CONJ = {"и", "или", "а", "но", "либо"}
 PREPS = {"в", "во", "на", "о", "об", "с", "со", "к", "ко", "по", "из", "от", "до", "для", "при", "за", "под",
          "над", "без", "через", "у", "про", "между", "перед", "согласно", "благодаря", "вследствие", "после"}
@@ -215,15 +221,27 @@ def corrupt(text, rng, p_clean=0.25, max_edits=3, p_single=0.0, p_form=0.45, pla
     return "".join(out), comma, form
 
 
-def restore(text, comma, form):
-    """Apply labels to text (inverse of corrupt) using pymorphy for word forms."""
+def restore(text, comma, form, spell=None):
+    """Apply labels to text (inverse of corrupt) using pymorphy for word forms.
+
+    spell (optional, from corrupt_spell) is aligned with the words of text like the other labels;
+    JOIN/HYPHEN remove the single space after the word, SPLIT puts a space after "не"."""
     ms = words_of(text)
     out, last = [], 0
+    separator = None
     for i, m in enumerate(ms):
-        out.append(text[last:m.start()])
+        out.append(text[last:m.start()] if separator is None else separator)
+        separator = None
         word = m.group(0)
         if form[i] != FORM_KEEP:
             word = inflect(word, form[i]) or word
+        label = spell[i] if spell else SPELL_KEEP
+        if label == SPELL_LOWER:
+            word = word[:1].lower() + word[1:]
+        elif label == SPELL_UPPER:
+            word = word[:1].upper() + word[1:]
+        elif label == SPELL_SPLIT:
+            word = word[:2] + " " + word[2:]
         out.append(word)
         last = m.end()
         has = text[last:last + 1] == ","
@@ -231,5 +249,201 @@ def restore(text, comma, form):
             out.append(",")
         elif comma[i] == COMMA_DEL and has:
             last += 1
+        if label in (SPELL_JOIN, SPELL_HYPHEN) and i + 1 < len(ms) and text[last:ms[i + 1].start()] == " ":
+            separator = "" if label == SPELL_JOIN else "-"
+            last = ms[i + 1].start()
     out.append(text[last:])
     return "".join(out)
+
+
+# ---- spelling corruptions (round 8): split/joined words, hyphens, wrong capitals ----------------------
+# Every edit needs context to be judged ("по этому вопросу" is right, "по этому" for "поэтому" is not),
+# so the labels are only generated from clean text and the word stays untouched wherever it is ambiguous.
+
+# prefixes people really split off in documents; "не" dominates ("не закрытых", "не выполнение")
+SPLIT_PREFIXES = (("не", 5), ("сверх", 1), ("меж", 1), ("само", 1), ("анти", 1), ("контр", 1), ("микро", 1),
+                  ("макро", 1), ("мульти", 1), ("обще", 1), ("много", 1), ("вне", 1), ("внутри", 1),
+                  ("средне", 1), ("высоко", 1), ("псевдо", 1), ("квази", 1))
+NE_POS = {"ADJF", "PRTF", "ADVB", "NOUN"}
+NE_STOP = {"некоторый", "некий", "несколько", "нечто", "некто", "нельзя", "небо", "неделя", "невеста"}
+# fixed spellings that are often written apart: joined form -> length of its first part
+JOINED_TABLE = {"поэтому": 2, "также": 3, "тоже": 2, "чтобы": 3, "зато": 2, "притом": 3, "причем": 3,
+                "причём": 3, "ввиду": 1, "вследствие": 1, "насчет": 2, "насчёт": 2, "навстречу": 2,
+                "затем": 2, "поскольку": 2, "несмотря": 2, "вместо": 1, "вроде": 1, "навсегда": 2,
+                "потому": 2, "незадолго": 2}
+HYPHEN_PARTICLES = {"то", "либо", "нибудь", "таки", "кое"}
+HYPHEN_PREFIXES = {"по", "во", "в", "из", "кое"}
+ROLE_NOUNS = {"директор", "министр", "президент", "председатель", "руководитель", "начальник", "управление",
+              "департамент", "правительство", "служба", "комитет", "министерство", "агентство", "комиссия",
+              "закон", "кодекс", "постановление", "приказ"}
+GEO_MARKERS = {"город", "городе", "города", "г", "области", "республике", "республики", "районе", "краю"}
+NAME_GRAMMEMES = ("Name", "Surn", "Patr")
+NOT_COMMON = ("Name", "Surn", "Patr", "Geox", "Orgn", "Abbr", "Trad")
+# Per-kind rates: a sentence that has a place for the kind gets the error with probability p_spell * rate.
+# Places for LOWER are in nearly every sentence, places for JOIN/SPLIT in about one in fifteen, so the
+# rates are what balances the label counts (see the report for the measured shares).
+SPELL_RATES = {"join": 4.0, "hyphen": 3.0, "split": 4.0, "lower": 0.5, "upper": 0.4}
+CYRILLIC_WORD = re.compile(r"[А-Яа-яЁё]+")
+
+
+def prefix_split(word):
+    """Length of the prefix to cut off a compound ("незакрытых" -> 2) and its weight, or None.
+
+    Only genuine compounds count: the lemma of the whole word must be prefix + the lemma of the rest,
+    so "небо", "неделя", "самолёт", "постановление" are never split."""
+    lw = word.lower()
+    for prefix, weight in SPLIT_PREFIXES:
+        rest = lw[len(prefix):]
+        if not lw.startswith(prefix) or len(rest) < (4 if prefix == "не" else 5) or not morph.word_is_known(rest):
+            continue
+        whole, part = morph.parse(lw)[0], morph.parse(rest)[0]
+        if whole.normal_form != prefix + part.normal_form:
+            continue
+        if prefix == "не" and (whole.tag.POS not in NE_POS or whole.normal_form in NE_STOP):
+            continue
+        return len(prefix), weight
+    return None
+
+
+def spell_candidates(c, ms, comma, form):
+    """Places where a spelling error can be made in c: kind -> [(word index, weight, payload)]."""
+    cands = {"join": [], "hyphen": [], "split": [], "lower": [], "upper": []}
+    if BIBLIOGRAPHY.search(c):
+        return cands
+    quotes = quoted_spans(c)
+    marker = len(LIST_MARKER.match(c).group(0)) if LIST_MARKER.match(c) else 0
+    first = next((i for i, m in enumerate(ms) if m.start() >= marker), None)
+
+    def plain(i):
+        m = ms[i]
+        return form[i] == FORM_KEEP and not protected(m.group(0)) and not any(a < m.start() < b for a, b in quotes)
+
+    def gap(i):
+        return c[ms[i].end():ms[i + 1].start()] if i + 1 < len(ms) else None
+
+    for i, m in enumerate(ms):
+        w = m.group(0)
+        if not plain(i) or m.start() < marker:
+            continue
+        if "-" in w and w.count("-") == 1:
+            a, b = w.split("-")
+            # "заво-да" at a line break is not a compound: its joined form is a word. The second part must be a
+            # word (or the first a prefix/particle: "по-русски", "кое-что") so that only real compounds are used
+            if CYRILLIC_WORD.fullmatch(a) and CYRILLIC_WORD.fullmatch(b) and not morph.word_is_known((a + b).lower()) \
+                    and (morph.word_is_known(b.lower()) or a.lower() in HYPHEN_PREFIXES or b.lower() in HYPHEN_PARTICLES):
+                weight = 2.0 if b.lower() in HYPHEN_PARTICLES or a.lower() in HYPHEN_PREFIXES else 1.0
+                cands["hyphen"].append((i, weight, len(a)))
+            continue
+        if not CYRILLIC_WORD.fullmatch(w):
+            continue
+        low = w.lower()
+        if low in JOINED_TABLE:
+            cands["join"].append((i, 2.0, JOINED_TABLE[low]))
+        elif len(w) >= 6:
+            cut = prefix_split(w)
+            if cut:
+                cands["join"].append((i, float(cut[1]), cut[0]))
+        if low == "не" and gap(i) == " " and plain(i + 1) and comma[i] == COMMA_KEEP:
+            nxt = ms[i + 1].group(0)
+            parse = morph.parse(nxt.lower())[0] if CYRILLIC_WORD.fullmatch(nxt) and len(nxt) >= 3 else None
+            if parse and parse.score >= 0.5 and parse.tag.POS in ("VERB", "INFN", "GRND") \
+                    and not morph.word_is_known(low + nxt.lower()):
+                cands["split"].append((i, 1.0, None))
+        if len(w) < 3 or not w.isalpha() or i == 0 and first != 0:
+            continue
+        parse = morph.parse(low)[0]
+        if parse.score < 0.4:
+            continue
+        if w[0].islower() and i > 0 and len(w) >= 4 and parse.score >= 0.5 and parse.tag.POS == "NOUN" \
+                and not any(g in parse.tag for g in NOT_COMMON) and gap(i - 1) == " " and ms[i - 1].group(0)[:1].isalpha():
+            before = ms[i - 1].group(0)
+            # "Налоговая Служба": the capital that follows a capitalised word; a sentence-initial "В"/"При" is no such word
+            weight = 4.0 if before[:1].isupper() and before.lower() not in PREPS | CONJ else 1.0
+            if parse.normal_form in ROLE_NOUNS:
+                weight *= 3
+            cands["lower"].append((i, weight, None))
+        elif w[0].isupper() and w[1:].islower():
+            if i == first:
+                cands["upper"].append((i, 1.0, None))
+            elif any(g in parse.tag for g in NAME_GRAMMEMES):
+                near = [j for j in (i - 1, i + 1) if 0 <= j < len(ms) and ms[j].group(0)[:1].isupper()
+                        and any(g in morph.parse(ms[j].group(0).lower())[0].tag for g in NAME_GRAMMEMES)
+                        and gap(min(i, j)) == " "]
+                if near:
+                    cands["upper"].append((i, 2.0, None))
+            elif "Geox" in parse.tag and i > 0 and ms[i - 1].group(0).lower() in GEO_MARKERS and gap(i - 1) == " ":
+                cands["upper"].append((i, 2.0, None))
+    return cands
+
+
+def corrupt_spell(text, rng, p_spell=0.0, rates=None, max_spell=2, **kwargs):
+    """Like corrupt(), plus spelling errors; returns (corrupted, comma, form, spell).
+
+    kwargs go to corrupt() unchanged, which runs first and consumes the random numbers exactly as
+    before; the spelling pass then works on its output. p_spell scales SPELL_RATES (or rates): each kind
+    that has a place in the sentence is applied with probability p_spell * rate, at most max_spell edits.
+    With p_spell == 0 the result is corrupt()'s plus all-KEEP spell labels and rng is not touched afterwards.
+
+    Alignment: all label lists are aligned with words_of(corrupted). A split word (JOIN/HYPHEN) becomes two
+    words and its label sits on the first one; its comma label moves to the second one, where the comma
+    follows. SPLIT merges "не" with the verb into one word labelled SPLIT; its comma label comes from the
+    verb. Words that already carry a form error are never touched, so labels never interact."""
+    c, comma, form = corrupt(text, rng, **kwargs)
+    spell = [SPELL_KEEP] * len(comma)
+    if p_spell <= 0:
+        return c, comma, form, spell
+    ms = words_of(c)
+    cands = spell_candidates(c, ms, comma, form)
+    rates = rates or SPELL_RATES
+    kinds = [k for k in ("join", "hyphen", "split", "lower", "upper") if cands[k] and rng.random() < p_spell * rates.get(k, 0.0)]
+    rng.shuffle(kinds)
+    plan = {}  # word index -> (kind, payload)
+    used = set()
+    for kind in kinds[:max_spell]:
+        choices = [(x, x[1]) for x in cands[kind] if x[0] not in used and (kind != "split" or x[0] + 1 not in used)]
+        if not choices:
+            continue
+        i, _, payload = weighted_pick(rng, choices)
+        plan[i] = (kind, payload)
+        used.add(i)
+        if kind == "split":
+            used.add(i + 1)
+    if not plan:
+        return c, comma, form, spell
+    out, new_comma, new_form, new_spell = [], [], [], []
+    last, skip = 0, False
+    for i, m in enumerate(ms):
+        if skip:
+            skip = False
+            continue
+        out.append(c[last:m.start()])
+        w = m.group(0)
+        last = m.end()
+        kind, payload = plan.get(i, (None, None))
+        if kind in ("join", "hyphen"):
+            out.append(w[:payload] + " " + w[payload + (kind == "hyphen"):])
+            new_spell += [SPELL_JOIN if kind == "join" else SPELL_HYPHEN, SPELL_KEEP]
+            new_comma += [COMMA_KEEP, comma[i]]
+            new_form += [FORM_KEEP, form[i]]
+        elif kind == "split":
+            nxt = ms[i + 1]
+            out.append(w + nxt.group(0))
+            last = nxt.end()
+            new_spell.append(SPELL_SPLIT)
+            new_comma.append(comma[i + 1])
+            new_form.append(form[i + 1])
+            skip = True
+        else:
+            if kind == "lower":      # a common noun written with a capital: the label says "make it lower"
+                w = w[:1].upper() + w[1:]
+            elif kind == "upper":
+                w = w[:1].lower() + w[1:]
+            out.append(w)
+            new_spell.append(SPELL_LOWER if kind == "lower" else SPELL_UPPER if kind == "upper" else SPELL_KEEP)
+            new_comma.append(comma[i])
+            new_form.append(form[i])
+    out.append(c[last:])
+    result = "".join(out)
+    if len(words_of(result)) != len(new_spell):
+        return c, comma, form, spell  # never ship misaligned labels
+    return result, new_comma, new_form, new_spell
