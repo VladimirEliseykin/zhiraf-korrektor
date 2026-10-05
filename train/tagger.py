@@ -24,6 +24,7 @@ import overlap_check  # noqa: E402
 
 COMMA_LABELS = [COMMA_KEEP, COMMA_ADD, COMMA_DEL]
 MAX_TOKENS = 192
+MAX_BAD_STEPS = 20  # non-finite steps in a row before a run gives up
 
 
 def device(force=None):
@@ -238,6 +239,7 @@ def train(args):
         optim, lambda s: min(1.0, s / max(1, int(0.05 * total))) * max(0.0, (total - s) / total))
     loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
     step, start_epoch, start_batch = 0, 0, 0
+    bad_steps = 0
     ckpt_path = os.path.join(args.out, "checkpoint.pt")
     if os.path.exists(ckpt_path):
         # resume after a crash or a memory-pressure kill: same order, same errors, same schedule
@@ -272,8 +274,24 @@ def train(args):
             if args.spell:
                 sl = out[2]
                 loss = loss + args.spell_loss_weight * loss_fn(sl.float().reshape(-1, sl.shape[-1]), sy.reshape(-1))
+            # a large model in bf16 once diverged to nan and kept training (and checkpointing) nan weights
+            # for hours: skip a non-finite step, give up after a run of them so the queue retries from the
+            # last good checkpoint
+            if not torch.isfinite(loss):
+                optim.zero_grad()
+                bad_steps += 1
+                if bad_steps >= MAX_BAD_STEPS:
+                    raise RuntimeError("loss is not finite for %d steps in a row (step %d)" % (bad_steps, step))
+                continue
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            if not torch.isfinite(norm):
+                optim.zero_grad()
+                bad_steps += 1
+                if bad_steps >= MAX_BAD_STEPS:
+                    raise RuntimeError("gradient is not finite for %d steps in a row (step %d)" % (bad_steps, step))
+                continue
+            bad_steps = 0
             optim.step()
             sched.step()
             optim.zero_grad()
@@ -283,6 +301,8 @@ def train(args):
             if args.max_steps and step >= args.max_steps:
                 break
             if step % args.save_every == 0:
+                if not all(torch.isfinite(p).all() for p in model.parameters()):
+                    raise RuntimeError("weights are not finite at step %d: checkpoint not saved" % step)
                 tmp = ckpt_path + ".tmp"
                 torch.save({"model": model.state_dict(), "optim": optim.state_dict(), "sched": sched.state_dict(),
                             "step": step, "epoch": epoch, "batch": bi + 1}, tmp)
