@@ -337,5 +337,19 @@ def test_earlier_predictions_are_stored_compactly(models_dir):
 def test_forms_ensemble_thresholds_are_pinned():
     # R5 + base-cased-forms, min: measured on dev by train/ensemble_eval.py (see the comment in checker.py)
     assert checker_module.ENSEMBLE_SIZE == {"commas": 3, "forms": 2}
-    assert (checker_module.SURE_FORM_ENS, checker_module.CHECK_FORM_ENS) == (0.8, 0.3)
+    assert (checker_module.SURE_FORM_ENS, checker_module.CHECK_FORM_ENS) == (0.8, 0.8)
     assert checker_module.ENSEMBLE_COMBINE["forms"] == "min"
+
+
+def test_form_check_score_never_makes_an_error_from_disagreeing_models():
+    from spellcheck.checker import form_findings
+
+    def pred(label, p):
+        return [{"comma": {"KEEP": 1.0, "ADD": 0.0, "DEL": 0.0}, "form": label, "form_p": p, "form_keep_p": 1 - p}]
+    parts = [compact(pred("case:ablt", 0.5)), compact(pred("case:gent", 0.95))]
+    merged = combine_predictions(parts, "min", "max")
+    assert merged[0]["form"] == "KEEP" and merged[0]["form_check"] == ("case:gent", 0.95)
+    assert combine_predictions(parts, "min", "first")[0]["form_check"] == ("case:ablt", 0.5)
+    assert combine_predictions(parts, "min", "mean")[0]["form_check"] == ("KEEP", 0.0)
+    found = form_findings("Он занимается информации.", merged, sure=0.8, check=0.4)
+    assert [f["level"] for f in found] == ["check"]  # 0.95 from one model is only a check

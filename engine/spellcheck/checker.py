@@ -36,21 +36,23 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # within the false budget, but over budget end to end), max >= 0.3 11 / 40, min >= 0.2 10 / 7 (the pure agreement band).
 # Measured end to end, "mean" >= 0.3 gave highlighted 18% / false check 2.6 per 100 (budget 2.2): not worth it, so
 # the shipped setting is the pure agreement band (min >= 0.2: 17% / 2.1); the hybrid stays available for retuning.
-CHECK_COMBINE = {}
+CHECK_COMBINE = {"forms": "max"}  # forms check band: the more confident of R5 and base-cased-forms, see CHECK_FORM_ENS
 # Forms (train/ensemble_eval.py, right / false form edits on dev at "error", clean official false alarms in brackets):
 #   R5 alone 0.9: 14 / 1 (1);  R5 + base-cased-forms min 0.8: 16 / 2 (1), min 0.9: 12 / 1 (0);
 #   R5 + base-cased-spell (its forms head) min 0.9: 9 / 1 (0), 0.8: 14 / 3 (2); R5 + both min 0.8: 14 / 2 (0).
 #   The spell model alone is worse than R5 (0.95: 5 / 4), so it is no member of the forms ensemble: it has its own
-#   R5 + base-cased-forms (forms-2), min, error 0.8 / check 0.3 is shipped: dev 16 / 2 (1); check band (0.3 to 0.8) on
-#   dev +2 right / +4 false, official +3 false (same at 0.4, 0.5; 0.6: +1 / +3, 0.7: +0 / +2). TEST (read once):
-#   error 0.8 22 / 5 (R5 alone 0.9: 19 / 9), with the band 29 / 9. Pooled gold 38 / 7 against 33 / 10.
+#   R5 + base-cased-forms (forms-2): error = both agree, min >= 0.8 (dev 16 / 2 (1); TEST read once 22 / 5, R5 alone
+#   0.9: 19 / 9). Check level = the more confident model ("max") with p >= 0.8. End to end (3100 gold / 1563 official),
+#   fixed 34%, highlighted / false check per 100 / official false check by check threshold: min 0.3: 13% / 1.8 / 0.4;
+#   max 0.4: 18% / 2.7 / 1.0 (over budget 2.2 / 0.9); 0.6: 17% / 2.6 / 0.6; 0.7: 16% / 2.4 / 0.6; 0.8: 15% / 2.1 / 0.4
+#   (shipped). Dev site counts (right / false): max band 6 / 7 at 0.4-0.6, first 3 / 11, min or mean 2 / 4.
 # The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
 # missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
 # those is at least as precise as one model alone, and nothing about two models was measured.
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3, "forms": 2}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
-SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.3  # forms = R5 + base-cased-forms (forms-2), "min"; see the numbers above
+SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = R5 + base-cased-forms (forms-2): error = both agree >= 0.8; check = CHECK_COMBINE max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
 #   JOIN   0.9: 10 / 1, no official false alarm (0.3 is the check band: still nothing sure)
@@ -119,17 +121,20 @@ def form_findings(body, preds, sure=SURE_FORM, check=CHECK_FORM):
     out = []
     for i, (m, p) in enumerate(zip(words_of(body), preds)):
         word = m.group(0)
-        if p["form"] == "KEEP" or p["form_p"] < check or protected(word):
+        label, prob = p["form"], p["form_p"]
+        if prob < sure and "form_check" in p:
+            label, prob = p["form_check"]  # a softer score of the same models for the "check" level only
+        if label == "KEEP" or prob < check or protected(word):
             continue
         if any(a < m.start() < b for a, b in quotes) or (i > 0 and word[:1].isupper()):
             continue  # titles in quotes; a capital inside a sentence is a name or a title
-        new = inflect(word, p["form"])
+        new = inflect(word, label)
         if not new or new == word or breaks_grammar(body, m.start(), m.end(), new):
             continue
-        level = "error" if p["form_p"] >= sure else "check"
+        level = "error" if label == p["form"] and p["form_p"] >= sure else "check"  # sure = the agreement only
         out.append({"start": m.start(), "end": m.end(), "level": level, "rule": "MODEL_FORM", "fix": new,
                     "message": "Неверное окончание" if level == "error" else "Проверьте окончание",
-                    "p": round(p["form_p"], 3)})
+                    "p": round(prob, 3)})
     return out
 
 
@@ -302,7 +307,22 @@ def combine_predictions(parts, how, check_how=None):
         out.append({"comma": comma, "form": labels[0] if same else "KEEP",
                     "form_p": pick([r[3] for r in rows]) if same else 0.0,
                     "form_keep_p": pick([r[4] for r in rows])})
+        if check_how is not None:
+            out[-1]["form_check"] = form_check(rows, labels, check_how)
     return out
+
+
+def form_check(rows, labels, how):
+    """(label, probability) for the "check" level of a word form, combined differently from the sure one:
+    first = the main model's own, max = the most confident model's, min / mean = the agreed label only."""
+    if how == "first":
+        return labels[0], rows[0][3]
+    if how == "max":
+        k = max(range(len(rows)), key=lambda j: rows[j][3] if labels[j] != "KEEP" else -1.0)
+        return labels[k], rows[k][3]
+    if all(label == labels[0] for label in labels):
+        return labels[0], CHECK_COMBINERS[how]([r[3] for r in rows])
+    return "KEEP", 0.0
 
 
 class Checker:
