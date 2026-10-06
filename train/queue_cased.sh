@@ -17,7 +17,7 @@ LOG=$R/queue-cased.log
 run() {
   name=$1; shift
   [ -f $R/$name/done ] && return 0
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5 6; do
     echo "=== $name start (attempt $attempt) $(date)" >> $LOG
     # grep exits 1 when it filters out every line; only the trainer's status matters
     $PY -u $T train --corpus $C --exclude $EX --out $R/$name "$@" 2>&1 \
@@ -28,9 +28,9 @@ run() {
       touch $R/$name/done
       return 0
     fi
-    sleep 60  # resumes from checkpoint.pt
+    sleep 300  # resumes from checkpoint.pt; a pause lets a memory spike of another program pass
   done
-  echo "=== $name failed 3 times, queue stopped $(date)" >> $LOG
+  echo "=== $name failed 6 times, queue stopped $(date)" >> $LOG
   exit 1
 }
 
