@@ -8,6 +8,7 @@ import argparse
 import collections
 import json
 import math
+import multiprocessing
 import os
 import random
 import sys
@@ -190,6 +191,23 @@ def evaluate(model, tokenizer, examples, form_labels, dev):
     return report
 
 
+_GEN = {}  # what _make_batch needs; set before the worker pool forks, so the workers inherit it
+
+
+def _make_batch(bi):
+    """Corrupted and encoded examples of batch bi: the same seed whether built here or in a worker,
+    so --workers changes the speed and nothing else."""
+    g = _GEN
+    idx = g["order"][bi * g["batch"]:(bi + 1) * g["batch"]]
+    chunk = make_examples([g["sents"][k] for k in idx],
+                          seed=(1000 + g["epoch"]) * 1_000_003 + bi + 7_919_000_000 * g["seed"])
+    batch = []
+    for c, cm, fm, sm in chunk:
+        e = encode(g["tokenizer"], c, cm, fm, g["form_index"], sm)
+        batch.append(e[:3] + e[4:])
+    return batch
+
+
 def train(args):
     # round 5: real documents have ~0.13 errors per sentence; a much denser synthetic error rate
     # teaches the model to "find" errors in correct text, so the density is configurable
@@ -259,15 +277,14 @@ def train(args):
         order = list(range(len(train_sents)))
         random.Random(epoch + 1_000_000 * args.seed).shuffle(order)
         first = start_batch if epoch == start_epoch else 0
-        for bi in range(first, steps_per_epoch):
-            idx = order[bi * args.batch:(bi + 1) * args.batch]
-            chunk = make_examples([train_sents[k] for k in idx], seed=(1000 + epoch) * 1_000_003 + bi + 7_919_000_000 * args.seed)
-            if not chunk:
+        _GEN.update(order=order, sents=train_sents, batch=args.batch, epoch=epoch, seed=args.seed,
+                    tokenizer=tokenizer, form_index=form_index)
+        pool = multiprocessing.get_context("fork").Pool(args.workers) if args.workers else None
+        batches = (pool.imap(_make_batch, range(first, steps_per_epoch), chunksize=8) if pool
+                   else map(_make_batch, range(first, steps_per_epoch)))
+        for bi, batch in zip(range(first, steps_per_epoch), batches):
+            if not batch:
                 continue
-            batch = []
-            for c, cm, fm, sm in chunk:
-                e = encode(tokenizer, c, cm, fm, form_index, sm)
-                batch.append(e[:3] + e[4:])
             ids, mask, cy, fy, sy = collate(batch, tokenizer.pad_token_id)
             ids, mask, cy, fy, sy = ids.to(dev), mask.to(dev), cy.to(dev), fy.to(dev), sy.to(dev)
             with torch.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=dev.type in ("xpu", "cuda")):
@@ -311,6 +328,8 @@ def train(args):
                 torch.save({"model": model.state_dict(), "optim": optim.state_dict(), "sched": sched.state_dict(),
                             "step": step, "epoch": epoch, "batch": bi + 1}, tmp)
                 os.replace(tmp, ckpt_path)  # atomic: a kill during saving never corrupts the checkpoint
+        if pool:
+            pool.terminate()
         report = evaluate(model, tokenizer, val, form_labels, dev)
         print("epoch %d validation: %s" % (epoch, json.dumps(report)), flush=True)
         if args.max_steps and step >= args.max_steps:
@@ -402,6 +421,7 @@ if __name__ == "__main__":
     t.add_argument("--p-spell", type=float, default=0.12,
                    help="with --spell: share of sentences that also get one spelling error (rarely two)")
     t.add_argument("--spell-loss-weight", type=float, default=1.0)
+    t.add_argument("--workers", type=int, default=0, help="processes building batches (0 = in the training process)")
     t.add_argument("--seed", type=int, default=0,
                    help="0 = the recipes as before; another value gives another data order, other errors, other head init")
     t.add_argument("--device", default=None, help="force a device (cpu); default: xpu if present, else cpu")
