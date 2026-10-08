@@ -26,17 +26,25 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # Several models in one stage (engine/models/commas-2, commas-3): the taggers differ a lot from run to run, an
 # edit that independently trained models all predict is far more often right.
 # COMBINE: "min" = agreement (every model must be above the threshold), "mean" = average probability.
-# Commas: R3 (commas) + R6 (commas-2) + R7 (commas-3), "min", chosen on dev by train/ensemble_eval.py.
-# Right / false comma edits at "error" on the real gold (dev | test), clean official false alarms in brackets:
-#   R3 alone, ADD 0.9 DEL 0.9:      22 / 3 | 21 / 3  (1)
-#   the ensemble, ADD 0.7 DEL 0.8:  27 / 2 | 26 / 4  (1)
+# Commas: R3 (commas) + R6 (commas-2) + large-commas-e0 (commas-3, ruBERT-large, epoch 0), "mean" for the error
+# level and "min" (agreement) for the check band, chosen on dev by train/ensemble_eval.py. The old R3+R6+R7 "min"
+# ensemble (ADD 0.7 DEL 0.8) was replaced: right / false comma edits at "error" on the real gold (dev | test),
+# clean official false alarms in brackets:
+#   R3 alone, ADD 0.9 DEL 0.9:           22 / 3 | 21 / 3  (1)
+#   R3+R6+R7 min, ADD 0.7 DEL 0.8:       27 / 2 | 26 / 4  (1)    (the previous shipped setting)
+#   R3+R6+e0 mean, ADD 0.8 DEL 0.8:      32 / 2 | 32 / 6  (1)    (shipped; test gain +6 right, paired bootstrap
+#                                                                 p(gain) 0.997, false +2 of 4, CI 0..5)
+# End to end (3100 gold / 1563 official): fixed 34% -> 37%, highlighted 15% -> 13%, missed 51% -> 50%; false
+# "error" 0.5 -> 0.5 per 100 (15 -> 17 findings: the delete head makes 3 of them), false "check" 2.1 -> 2.0,
+# official false error 0.1 -> 0.1, official false check 0.4 -> 0.5. Comma fixed 53 -> 64 of 131.
+# R7 + large-commas-e0 and the four-model sets were not better on dev; gpu-large-commas-s1 is worse than e0.
 # Hybrid: "error" from the agreement (min), "check" from a softer score of the same models, so that places the
 # models only half agree on are still highlighted: CHECK_COMBINE "min" | "mean" | "max" | "first" (the main model).
 # Check-only places (ADD, not an error), right / false on dev: first >= 0.3 9 / 15, mean >= 0.3 10 / 13 (best on dev
 # within the false budget, but over budget end to end), max >= 0.3 11 / 40, min >= 0.2 10 / 7 (the pure agreement band).
 # Measured end to end, "mean" >= 0.3 gave highlighted 18% / false check 2.6 per 100 (budget 2.2): not worth it, so
 # the shipped setting is the pure agreement band (min >= 0.2: 17% / 2.1); the hybrid stays available for retuning.
-CHECK_COMBINE = {"forms": "max"}  # forms check band: the more confident of R5 and base-cased-forms, see CHECK_FORM_ENS
+CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more confident of R5 and base-cased-forms, see CHECK_FORM_ENS
 # Forms (train/ensemble_eval.py, right / false form edits on dev at "error", clean official false alarms in brackets):
 #   R5 alone 0.9: 14 / 1 (1);  R5 + base-cased-forms min 0.8: 16 / 2 (1), min 0.9: 12 / 1 (0);
 #   R5 + base-cased-spell (its forms head) min 0.9: 9 / 1 (0), 0.8: 14 / 3 (2); R5 + both min 0.8: 14 / 2 (0).
@@ -49,9 +57,9 @@ CHECK_COMBINE = {"forms": "max"}  # forms check band: the more confident of R5 a
 # The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
 # missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
 # those is at least as precise as one model alone, and nothing about two models was measured.
-ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
+ENSEMBLE_COMBINE = {"commas": "mean", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3, "forms": 2}
-SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.7, 0.8, 0.2
+SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.8, 0.8, 0.2
 SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = R5 + base-cased-forms (forms-2): error = both agree >= 0.8; check = CHECK_COMBINE max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:

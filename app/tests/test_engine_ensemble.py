@@ -19,6 +19,7 @@ SENTENCES = ["Документ определяющий порядок утве�
 def pure_agreement(monkeypatch):
     """The combiner tests below look at min / mean alone: no separate check score unless a test asks for it."""
     monkeypatch.setattr(checker_module, "CHECK_COMBINE", {})
+    monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "min")  # the shipped commas combiner is "mean"
 
 
 def commas(c, stages=("commas",), **kwargs):
@@ -228,7 +229,8 @@ def test_a_single_model_keeps_the_single_thresholds(models_dir):
 
 
 def test_three_models_use_the_ensemble_thresholds(models_dir):
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "error")]  # >= 0.7
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.85)] * 3))[0] == [("MODEL_COMMA", "error")]  # mean >= 0.8
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "check")]  # mean < 0.8
     assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 3))[0] == [("MODEL_COMMA", "check")]  # >= 0.2
 
 
@@ -250,7 +252,7 @@ def test_delete_needs_every_model_and_the_ensemble_delete_threshold(models_dir):
     sure = {"del_after": {"знаем", "сказал"}}
     assert del_levels(models(models_dir, [dict(sure, del_p=0.85)] * 3)) == [[("MODEL_COMMA_DEL", "error")]] * 2  # >= 0.8
     one_blind = [dict(sure, del_p=0.95), dict(sure, del_p=0.95), {}]
-    assert del_levels(models(models_dir, one_blind)) == [[], []]  # min over the models is 0
+    assert del_levels(models(models_dir, one_blind)) == [[], []]  # the mean 0.63 is under 0.8
     assert del_levels(models(models_dir, [dict(sure, del_p=0.75)] * 3)) == [[], []]  # under 0.8
     assert del_levels(models(models_dir, [dict(sure, del_p=0.85)])) == [[], []]  # a single model needs 0.9
 
@@ -353,3 +355,12 @@ def test_form_check_score_never_makes_an_error_from_disagreeing_models():
     assert combine_predictions(parts, "min", "mean")[0]["form_check"] == ("KEEP", 0.0)
     found = form_findings("Он занимается информации.", merged, sure=0.8, check=0.4)
     assert [f["level"] for f in found] == ["check"]  # 0.95 from one model is only a check
+
+
+def test_commas_ensemble_thresholds_are_pinned(monkeypatch):
+    monkeypatch.undo()  # the autouse fixture above replaces the shipped combiners
+    # R3 + R6 + large-commas-e0, mean (train/ensemble_eval.py; see the comment in checker.py)
+    assert checker_module.ENSEMBLE_SIZE["commas"] == 3
+    assert checker_module.ENSEMBLE_COMBINE["commas"] == "mean"
+    assert checker_module.CHECK_COMBINE["commas"] == "min"
+    assert (checker_module.SURE_COMMA_ENS, checker_module.SURE_DEL_ENS, checker_module.CHECK_COMMA_ENS) == (0.8, 0.8, 0.2)
