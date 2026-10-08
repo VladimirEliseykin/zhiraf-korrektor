@@ -31,6 +31,8 @@ def device(force=None):
     """force="cpu" keeps a run off the accelerator that another job is using."""
     if force:
         return torch.device(force)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu")
     return torch.device("cpu")
@@ -227,6 +229,8 @@ def train(args):
         meta["spell_labels"] = SPELL_LABELS  # absent for models without the head
     json.dump(meta, open(os.path.join(args.out, "labels.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
+    if args.seed:
+        torch.manual_seed(args.seed)  # another start for the new heads: runs differ, ensembles gain
     model = TaggerModel(args.base, len(form_labels), len(SPELL_LABELS) if args.spell else 0)
     if args.init:
         fresh = load_weights(model, torch.load(os.path.join(args.init, "model.pt"), map_location="cpu", weights_only=True))
@@ -253,11 +257,11 @@ def train(args):
     for epoch in range(start_epoch, args.epochs):
         # errors are generated batch by batch (not the whole corpus at once) to keep memory small
         order = list(range(len(train_sents)))
-        random.Random(epoch).shuffle(order)
+        random.Random(epoch + 1_000_000 * args.seed).shuffle(order)
         first = start_batch if epoch == start_epoch else 0
         for bi in range(first, steps_per_epoch):
             idx = order[bi * args.batch:(bi + 1) * args.batch]
-            chunk = make_examples([train_sents[k] for k in idx], seed=(1000 + epoch) * 1_000_003 + bi)
+            chunk = make_examples([train_sents[k] for k in idx], seed=(1000 + epoch) * 1_000_003 + bi + 7_919_000_000 * args.seed)
             if not chunk:
                 continue
             batch = []
@@ -266,7 +270,7 @@ def train(args):
                 batch.append(e[:3] + e[4:])
             ids, mask, cy, fy, sy = collate(batch, tokenizer.pad_token_id)
             ids, mask, cy, fy, sy = ids.to(dev), mask.to(dev), cy.to(dev), fy.to(dev), sy.to(dev)
-            with torch.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=dev.type == "xpu"):
+            with torch.autocast(device_type=dev.type, dtype=torch.bfloat16, enabled=dev.type in ("xpu", "cuda")):
                 out = model(ids, mask)
             cl, fl = out[0], out[1]
             loss = loss_fn(cl.float().reshape(-1, cl.shape[-1]), cy.reshape(-1)) + \
@@ -398,6 +402,8 @@ if __name__ == "__main__":
     t.add_argument("--p-spell", type=float, default=0.12,
                    help="with --spell: share of sentences that also get one spelling error (rarely two)")
     t.add_argument("--spell-loss-weight", type=float, default=1.0)
+    t.add_argument("--seed", type=int, default=0,
+                   help="0 = the recipes as before; another value gives another data order, other errors, other head init")
     t.add_argument("--device", default=None, help="force a device (cpu); default: xpu if present, else cpu")
     t.add_argument("--threads", type=int, default=0, help="torch CPU threads (0 = torch default)")
     t.add_argument("--max-steps", type=int, default=0, help="stop after this many steps (smoke runs)")
