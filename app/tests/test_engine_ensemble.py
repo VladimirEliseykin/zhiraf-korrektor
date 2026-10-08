@@ -357,6 +357,16 @@ def test_form_check_score_never_makes_an_error_from_disagreeing_models():
     assert [f["level"] for f in found] == ["check"]  # 0.95 from one model is only a check
 
 
+def test_sure_form_is_an_error_even_when_the_check_threshold_is_higher():
+    # the check threshold is a floor for check marks only: a sure prediction (0.6 >= sure 0.5) used to be
+    # dropped by a higher check floor (0.9), which silently cut the fixes when thresholds were retuned
+    from spellcheck.checker import form_findings
+    keep = {"comma": {"KEEP": 1.0, "ADD": 0.0, "DEL": 0.0}, "form": "KEEP", "form_p": 0.99, "form_keep_p": 0.99}
+    wrong = dict(keep, form="case:ablt", form_p=0.6, form_keep_p=0.4)
+    found = form_findings("Он занимается информации.", [keep, keep, wrong], sure=0.5, check=0.9)
+    assert [(f["level"], f["fix"]) for f in found] == [("error", "информацией")]
+
+
 def test_commas_ensemble_thresholds_are_pinned(monkeypatch):
     monkeypatch.undo()  # the autouse fixture above replaces the shipped combiners
     # R3 + R6 + large-commas-e0, mean (train/ensemble_eval.py; see the comment in checker.py)

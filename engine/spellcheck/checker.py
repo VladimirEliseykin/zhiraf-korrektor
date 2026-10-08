@@ -130,9 +130,10 @@ def form_findings(body, preds, sure=SURE_FORM, check=CHECK_FORM):
     for i, (m, p) in enumerate(zip(words_of(body), preds)):
         word = m.group(0)
         label, prob = p["form"], p["form_p"]
-        if prob < sure and "form_check" in p:
+        sure_hit = label != "KEEP" and prob >= sure  # the check floor applies to check marks only
+        if not sure_hit and "form_check" in p:
             label, prob = p["form_check"]  # a softer score of the same models for the "check" level only
-        if label == "KEEP" or prob < check or protected(word):
+        if label == "KEEP" or (not sure_hit and prob < check) or protected(word):
             continue
         if any(a < m.start() < b for a, b in quotes) or (i > 0 and word[:1].isupper()):
             continue  # titles in quotes; a capital inside a sentence is a name or a title
