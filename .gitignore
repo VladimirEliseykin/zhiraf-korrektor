@@ -3,6 +3,7 @@ models/
 corpus/
 runs/
 engine/models/
+models-retired/
 lt/
 payload*/
 *.iso
