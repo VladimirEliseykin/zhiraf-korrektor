@@ -7,6 +7,7 @@ Words are regex tokens of the sentence. For every word the tagger predicts:
                | LOWER | UPPER (first letter of this word); optional, see corrupt_spell()
 corrupt() returns the corrupted text and the labels that turn it back into the clean text.
 """
+import math
 import os
 import random
 import re
@@ -18,6 +19,7 @@ from spellcheck.guards import BIBLIOGRAPHY, LIST_MARKER, protected, quoted_spans
 from spellcheck.morph import morph  # noqa: E402
 from spellcheck.spelling import CAPITAL_LEMMAS, JOINED_TABLE, pair_is_meant_apart  # noqa: E402,F401
 from spellcheck.text import WORD, inflect, words_of  # noqa: E402,F401
+from error_context import comma_gaps, form_features, prev_group  # noqa: E402
 
 CASES = ("nomn", "gent", "datv", "accs", "ablt", "loct")
 COMMA_KEEP, COMMA_ADD, COMMA_DEL = "KEEP", "ADD", "DEL"
@@ -158,12 +160,16 @@ def weighted_pick(rng, items):
     return items[-1][0]
 
 
-def corrupt(text, rng, p_clean=0.25, max_edits=3, p_single=0.0, p_form=0.45, placement=True):
+def corrupt(text, rng, p_clean=0.25, max_edits=3, p_single=0.0, p_form=0.45, placement=True,
+            realistic=False, error_rate=1.0, form_scale=1.0):
     """Returns (corrupted_text, comma_labels, form_labels) aligned with words_of(corrupted_text).
 
     p_form is the share of word-form edits; the rest are comma edits, dropped vs spurious 30:25.
     Comma and form errors need different densities (round 5): realistic rarity of form errors
-    cut false form edits, while the same rarity of comma errors cut comma recall."""
+    cut false form edits, while the same rarity of comma errors cut comma recall.
+    realistic=True switches to corrupt_realistic() (round 9); every other flag keeps the old recipes bit for bit."""
+    if realistic:
+        return corrupt_realistic(text, rng, error_rate=error_rate, max_edits=max_edits, form_scale=form_scale)
     p_drop = p_form + (1 - p_form) * 0.30 / 0.55
     ms = words_of(text)
     n = len(ms)
@@ -211,6 +217,222 @@ def corrupt(text, rng, p_clean=0.25, max_edits=3, p_single=0.0, p_form=0.45, pla
                 add_comma.add(i)
                 comma[i] = COMMA_DEL
                 edits -= 1
+    out, last = [], 0
+    for i, m in enumerate(ms):
+        out.append(text[last:m.start()])
+        out.append(pieces.get(i, m.group(0)))
+        last = m.end()
+        if i in drop_comma:
+            last += 1  # skip the comma that followed this word
+        if i in add_comma:
+            out.append(",")
+    out.append(text[last:])
+    return "".join(out), comma, form
+
+
+# ---- realistic errors (round 9) -------------------------------------------------------------------------
+# How the weights below were measured (counts only, no sentences; reproduce with train/fit_realistic.py):
+#  1. On the DEV gold (1550 real sentences, 24.7k words) every gold edit of the kinds "missing comma" (37),
+#     "spurious comma" (28) and "wrong word form" (44) is put into contexts by train/error_context.py: ctx = the class
+#     of the comma gap / word, where = position in the sentence, first_comma = no comma before it in the sentence,
+#     prev = part of speech before the gap. *_COUNTS holds (events, places): how many gold edits fell on a value
+#     and how many places with that value the dev sentences have (gaps with a comma for missing commas, gaps
+#     without one for spurious commas, words that can take a wrong form for forms). The test split was never read.
+#  2. A Poisson log-linear model rate(place) = BASE_RATE * product of the weights of the place's feature values is
+#     fitted to these events by penalised maximum likelihood (fit_loglinear), so correlated features (a closing comma
+#     sits late in the sentence) do not count twice. The counts are tiny, so a ridge penalty pulls every weight
+#     towards 1 (for the spurious comma between a subject and its verb, a textbook error that dev happens not to
+#     show, towards PRIOR_FACTOR = 2); the penalty (RIDGE in fit_realistic.py) was chosen by 5-fold cross-
+#     validation over whole documents on the held-out Poisson log-likelihood: +0.14 / +0.43 nats per event over the
+#     uniform rate for missing / spurious commas, where the round-4 heuristics of corrupt() score -0.21 / -0.18
+#     (worse than uniform: that is why the uniform recipe won). For word forms the fitted contexts alone gain only
+#     +0.02, the round-4 heuristics +0.11 and both together +0.12, so forms keep the heuristics (form_weight) and the
+#     fitted context table only corrects them. BASE_RATE is the probability of an error per place in real documents.
+#  3. The generator makes an error at every place independently with probability error_rate * rate(place), error_rate
+#     = 1 being the real density; training uses a much denser one. So the number of errors of a sentence follows
+#     its length and its error-prone places, as in real text (0.013 / 0.038 / 0.127 / 0.127 / 0.111 errors per sentence
+#     for <8 / 8-15 / 16-25 / 26-40 / >40 words in dev), and the mix of the three kinds is the real one.
+MISSING_COUNTS = {
+    "ctx": {"other": (6, 449), "participle_phrase": (11, 304), "subord": (4, 292), "homogeneous": (1, 185), "closing_phrase": (8, 130), "advers": (0, 95), "closing_lead": (0, 71), "phrase_marker": (1, 70), "after_conj_or_intro": (1, 36), "and_or": (4, 29), "subject_verb": (1, 27), "verb_object": (0, 3)},
+    "where": {"middle": (8, 563), "tail": (6, 422), "head(4-7)": (11, 405), "start(<=3)": (12, 301)},
+    "first_comma": {"later": (18, 849), "first": (19, 842)},
+    "prev": {"NOUN": (31, 1283), "ADJ": (2, 146), "rest": (3, 133), "VERB": (0, 71), "CONJ": (1, 58)},
+}
+SPURIOUS_COUNTS = {
+    "ctx": {"other": (7, 8597), "closing_lead": (6, 1636), "closing_phrase": (3, 1571), "homogeneous": (0, 1179), "and_or": (6, 893), "verb_object": (0, 860), "subject_verb": (0, 519), "participle_phrase": (2, 507), "after_conj_or_intro": (3, 347), "subord": (1, 129), "phrase_marker": (0, 27), "advers": (0, 10)},
+    "where": {"start(<=3)": (9, 4626), "tail": (3, 4405), "head(4-7)": (9, 3859), "middle": (7, 3385)},
+    "first_comma": {"first": (22, 8957), "later": (6, 7318)},
+    "prev": {"NOUN": (20, 7805), "ADJ": (1, 3909), "rest": (3, 2666), "VERB": (1, 1486), "CONJ": (3, 409)},
+}
+FORM_COUNTS = {"adj_noun_agreement": (5, 3920), "noun_noun_chain": (8, 3647), "noun_after_adj": (3, 2776), "after_preposition": (7, 2320), "predicate": (7, 1727), "other": (4, 1496), "verb_object": (1, 614), "participle_after_noun": (6, 545), "after_numeral": (2, 105), "adj_no_head_right": (1, 61)}
+P_MAX = 0.6           # no place is certain to carry an error, however dense the recipe
+PRIOR_FACTOR = {"SPURIOUS": {"ctx": {"subject_verb": 2.0}}}   # prior weight (not a count) of a value
+FORM_HEURISTIC_MEAN = 1.1138
+BASE_RATE = {"missing": 0.01775, "spurious": 0.00099, "form": 0.00237}
+MISSING_WEIGHT = {
+    "ctx": {"and_or": 3.52, "closing_phrase": 2.58, "participle_phrase": 1.63, "subject_verb": 1.3, "after_conj_or_intro": 1.21, "verb_object": 1.12, "phrase_marker": 1.01, "subord": 0.835, "other": 0.771, "closing_lead": 0.662, "advers": 0.662, "homogeneous": 0.629},
+    "where": {"start(<=3)": 2.28, "head(4-7)": 1.35, "tail": 0.7, "middle": 0.677},
+    "first_comma": {"later": 1.17, "first": 0.855},
+    "prev": {"NOUN": 1.1, "rest": 0.933, "ADJ": 0.737, "CONJ": 0.702, "VERB": 0.5},
+}
+SPURIOUS_WEIGHT = {
+    "ctx": {"and_or": 3.67, "after_conj_or_intro": 3.35, "subord": 2.37, "closing_phrase": 2.04, "participle_phrase": 1.87, "closing_lead": 1.85, "advers": 1.36, "phrase_marker": 1.32, "subject_verb": 0.939, "verb_object": 0.799, "other": 0.694, "homogeneous": 0.517},
+    "where": {"middle": 1.44, "head(4-7)": 1.2, "start(<=3)": 0.932, "tail": 0.694},
+    "first_comma": {"first": 1.6, "later": 0.561},
+    "prev": {"CONJ": 2.41, "NOUN": 1.66, "rest": 0.956, "VERB": 0.672, "ADJ": 0.396},
+}
+FORM_WEIGHT = {"participle_after_noun": 1.66, "after_numeral": 1.4, "predicate": 1.28, "adj_no_head_right": 1.25, "after_preposition": 1.16, "noun_noun_chain": 1.07, "other": 1.07, "verb_object": 1.07, "noun_after_adj": 0.857, "adj_noun_agreement": 0.762}
+
+# the wrong case that stood in the text, over the 33 real case errors (counts + 1): people write the unmarked
+# nominative or genitive far more often than a dative or an instrumental
+WRONG_CASE = {"nomn": 11, "gent": 15, "accs": 3, "datv": 3, "ablt": 3, "loct": 4}
+# share of the non-case grammemes among the form errors of a part of speech (real: 15 of 44 are not case errors;
+# the noun after a numeral takes number errors, participles and verbs gender and number)
+FORM_KIND_WEIGHTS = {
+    "NOUN": {"case": 0.93, "number": 0.07}, "NOUN:after_numeral": {"case": 0.2, "number": 0.8},
+    "NOUN:noun_after_adj": {"case": 0.75, "number": 0.25},
+    "ADJF": {"case": 0.6, "gender": 0.2, "number": 0.2}, "PRTF": {"case": 0.6, "gender": 0.2, "number": 0.2},
+    "VERB": {"number": 0.45, "gender": 0.55}, "PRTS": {"number": 0.45, "gender": 0.55},
+    "ADJS": {"number": 0.45, "gender": 0.55},
+}
+
+
+def install_weights(base=None, missing=None, spurious=None, forms=None):
+    """Replace the rates (the cross-validation uses this); None keeps a table."""
+    global BASE_RATE, MISSING_WEIGHT, SPURIOUS_WEIGHT, FORM_WEIGHT
+    BASE_RATE = BASE_RATE if base is None else base
+    MISSING_WEIGHT = MISSING_WEIGHT if missing is None else missing
+    SPURIOUS_WEIGHT = SPURIOUS_WEIGHT if spurious is None else spurious
+    FORM_WEIGHT = FORM_WEIGHT if forms is None else forms
+
+
+def comma_weight(weights, feats):
+    w = 1.0
+    for name, rates in weights.items():
+        value = prev_group(feats["prev_pos"]) if name == "prev" else feats[name]
+        w *= rates.get(value, 1.0)
+    return w
+
+
+def comma_candidates(text, ms):
+    """(missing, spurious): places where a comma can be dropped / wrongly added, each (word index, features)."""
+    drop, add = [], []
+    for i, has, feats in comma_gaps(text, ms):
+        gap = text[ms[i].end():ms[i + 1].start()]
+        # a comma glued to the next word is a decimal one ("27,5"): dropping it merges two words into one
+        if has and gap.startswith(", "):
+            drop.append((i, feats))
+        elif not has and gap == " " and ms[i].group(0).lower() not in PREPS and ms[i].group(0).lower() not in CONJ:
+            add.append((i, feats))
+    return drop, add
+
+
+def form_candidates(text, ms):
+    """Words that can take a wrong form: (word index, context, round-4 heuristic weight of the place)."""
+    out = []
+    for i, m in enumerate(ms):
+        w = m.group(0)
+        if re.fullmatch(r"[А-Яа-яЁё]+", w) and len(w) >= 3 and morph.parse(w.lower())[0].tag.POS in FORM_KIND_WEIGHTS:
+            out.append((i, form_features(text, ms, i, set())["ctx"], form_weight(text, ms, i)))
+    return out
+
+
+def poisson(rng, mean):
+    limit, k, p = math.exp(-mean), 0, 1.0
+    while True:
+        p *= rng.random()
+        if p <= limit:
+            return k
+        k += 1
+
+
+def weighted_order(rng, items):
+    """Items in random order, heavier ones earlier (Efraimidis-Spirakis weighted sampling without replacement)."""
+    keyed = [(rng.random() ** (1.0 / w) if w > 0 else 0.0, x) for x, w in items]
+    keyed.sort(key=lambda kx: -kx[0])
+    return [x for _, x in keyed]
+
+
+def corrupt_form_realistic(word, ctx, rng):
+    """Like corrupt_form(), with the wrong case and the kind of grammeme drawn as people really get them wrong."""
+    if not re.fullmatch(r"[а-яё]+", word) or len(word) < 3:
+        return None
+    parse = morph.parse(word)[0]
+    if parse.score < 0.5:
+        return None
+    tag = parse.tag
+    pos = tag.POS or ""
+    kinds = FORM_KIND_WEIGHTS.get(pos + ":" + ctx) or FORM_KIND_WEIGHTS.get(pos)
+    if not kinds:
+        return None
+    options = []
+    if "case" in kinds and tag.case and pos in ("NOUN", "ADJF", "PRTF"):
+        total = sum(WRONG_CASE[c] for c in CASES if c != tag.case)
+        options += [({c}, kinds["case"] * WRONG_CASE[c] / total) for c in CASES if c != tag.case]
+    if "number" in kinds and tag.number:
+        options.append(({"plur" if tag.number == "sing" else "sing"}, kinds["number"]))
+    if "gender" in kinds and tag.gender and (tag.number == "sing" or pos in ("VERB", "PRTS", "ADJS")):
+        others = [g for g in ("masc", "femn", "neut") if g != tag.gender]
+        options += [({g}, kinds["gender"] / len(others)) for g in others]
+    readings = {p.word for p in morph.parse(word)}
+    for grammemes in weighted_order(rng, options):
+        new = parse.inflect(grammemes)
+        if not new or new.word in readings:
+            continue
+        if any(p.tag == tag for p in morph.parse(new.word)):
+            continue
+        label = form_label(word, new.tag, tag)
+        # the label must bring the original word back through the same inflection restore() uses
+        if label and inflect(new.word, label) == word:
+            return new.word, label
+    return None
+
+
+def corrupt_realistic(text, rng, error_rate=10.0, max_edits=4, form_scale=1.0):
+    """Errors as real people make them (see the tables above).
+
+    Every place where a comma can be dropped, a spurious comma added or a word form spoilt gets an error
+    independently, with probability error_rate * its measured rate (error_rate 1 = real documents, about 0.13 errors
+    per sentence of 16+ words; training uses a denser one on purpose; form_scale boosts the forms against the
+    commas). The wrong case and the grammeme kind follow the real counts. At most max_edits errors are kept
+    (a random subset). Returns the same (text, comma, form) as corrupt()."""
+    ms = words_of(text)
+    n = len(ms)
+    comma = [COMMA_KEEP] * n
+    form = [FORM_KEEP] * n
+    if n < 4:
+        return text, comma, form
+    drop, add = comma_candidates(text, ms)
+    picks = []
+    for kind, cands, table, base in (("drop", drop, MISSING_WEIGHT, BASE_RATE["missing"]),
+                                     ("add", add, SPURIOUS_WEIGHT, BASE_RATE["spurious"])):
+        for i, feats in cands:
+            if rng.random() < min(P_MAX, error_rate * base * comma_weight(table, feats)):
+                picks.append((kind, i, None))
+    for i, ctx, heuristic in form_candidates(text, ms):
+        # round-4 heuristics (participle after its noun, coordinated objects, ...) held out better than the fitted
+        # contexts alone, so the fitted context table corrects them instead of replacing them
+        rate = BASE_RATE["form"] * FORM_WEIGHT.get(ctx, 1.0) * (0.9 * heuristic / FORM_HEURISTIC_MEAN + 0.1)
+        if rng.random() < min(P_MAX, error_rate * form_scale * rate):
+            picks.append(("form", i, ctx))
+    if len(picks) > max_edits:
+        rng.shuffle(picks)
+        picks = picks[:max_edits]
+    pieces, drop_comma, add_comma = {}, set(), set()
+    for kind, i, ctx in picks:
+        if kind == "drop":
+            drop_comma.add(i)
+            comma[i] = COMMA_ADD
+        elif kind == "add":
+            add_comma.add(i)
+            comma[i] = COMMA_DEL
+        else:
+            w = ms[i].group(0)
+            res = corrupt_form_realistic(w.lower(), ctx, rng)
+            if res:
+                new, label = res
+                pieces[i] = new if w[0].islower() else new.capitalize()
+                form[i] = label
     out, last = [], 0
     for i, m in enumerate(ms):
         out.append(text[last:m.start()])
