@@ -38,3 +38,4 @@ spike/*.json
 spike/*.jsonl
 spike/*.js
 floppy/autounattend.xml
+data-public/
