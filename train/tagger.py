@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from corrupt import (COMMA_ADD, COMMA_DEL, COMMA_KEEP, FORM_KEEP, SPELL_LABELS,  # noqa: E402
                      corrupt, corrupt_spell, restore, words_of)
 import overlap_check  # noqa: E402
+import pair_labels  # noqa: E402
 
 COMMA_LABELS = [COMMA_KEEP, COMMA_ADD, COMMA_DEL]
 MAX_TOKENS = 192
@@ -120,14 +121,57 @@ def collate(batch, pad_id):
     return ids, mask, cy, fy, sy
 
 
-def load_corpus(path, exclude_paths):
+def load_corpus(path, exclude_paths, skip_lines=(), skip_keys=()):
+    """Sentences of the corpus without the evaluation ones (and, for real-pair runs, without skip_lines, 1-based
+    line numbers of path, and without sentences whose key is in skip_keys: the clean twins of the real pairs)."""
     # compare without punctuation, case and ё: an evaluation sentence must not reach training
     # even when it differs from its twin only by the very commas or letters the model is scored on
     exclude = set()
     for p in exclude_paths:
         exclude |= overlap_check.eval_keys(p)
-    sents = [json.loads(line)["src"] for line in open(path, encoding="utf-8")]
-    return [s for s in sents if overlap_check.key(s) not in exclude], len(exclude)
+    skip_lines = set(skip_lines)
+    sents = [json.loads(line)["src"] for n, line in enumerate(open(path, encoding="utf-8"), 1) if n not in skip_lines]
+    skip = exclude | set(skip_keys)
+    return [s for s in sents if overlap_check.key(s) not in skip], len(exclude)
+
+
+def load_pair_examples(paths, exclude_paths=()):
+    """Real error pairs as training examples (text, comma labels, form labels, None) plus the keys of the
+    sentences they come from. Files are the jsonl of pair_labels.py (with labels) or raw {"src", "gold"} pairs,
+    which are converted on the fly. A pair that coincides with an evaluation sentence is dropped."""
+    exclude = set()
+    for p in exclude_paths:
+        exclude |= overlap_check.eval_keys(p)
+    records = []
+    for path in paths:
+        rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+        records += rows if rows and "comma" in rows[0] else pair_labels.convert(rows)[0]
+    kept = [r for r in records if overlap_check.key(r["src"]) not in exclude and overlap_check.key(r["gold"]) not in exclude]
+    keys = {overlap_check.key(t) for r in kept for t in (r["src"], r["gold"])}
+    return [(r["src"], r["comma"], r["form"], None) for r in kept], keys, len(records) - len(kept)
+
+
+def pairs_per_batch(batch, share):
+    """How many examples of a batch come from the real pairs: 0 without pairs, else at least 1 and at most batch - 1."""
+    if not share:
+        return 0
+    return min(batch - 1, max(1, round(batch * share)))
+
+
+def pair_indices(n, k, first, seed, cache=None):
+    """Indices of the k real pairs at positions first .. first+k-1 of the endless stream "pass 0, pass 1, ...", each
+    pass a fresh shuffle of range(n) under the seed. Stateless, so it is the same in a worker or after a resume."""
+    cache = {} if cache is None else cache
+    out = []
+    for p in range(first, first + k):
+        number = p // n
+        if number not in cache:
+            order = list(range(n))
+            random.Random(31_337 + number + 1_000_003 * seed).shuffle(order)
+            cache.clear()  # a batch spans at most two passes; older ones are never asked for again
+            cache[number] = order
+        out.append(cache[number][p % n])
+    return out
 
 
 ERROR_DENSITY = {"p_clean": 0.25, "max_edits": 3, "p_single": 0.0, "p_form": 0.45, "placement": True}
@@ -211,9 +255,13 @@ def _make_batch(bi):
     """Corrupted and encoded examples of batch bi: the same seed whether built here or in a worker,
     so --workers changes the speed and nothing else."""
     g = _GEN
-    idx = g["order"][bi * g["batch"]:(bi + 1) * g["batch"]]
+    syn = g["batch"] - g["k"]  # examples from the generator; k come from the real pairs (0 = as before)
+    idx = g["order"][bi * syn:(bi + 1) * syn]
     chunk = make_examples([g["sents"][k] for k in idx],
                           seed=(1000 + g["epoch"]) * 1_000_003 + bi + 7_919_000_000 * g["seed"])
+    if g["k"]:
+        first = (g["epoch"] * g["steps"] + bi) * g["k"]
+        chunk = chunk + [g["pairs"][p] for p in pair_indices(len(g["pairs"]), g["k"], first, g["seed"], g["pair_cache"])]
     batch = []
     for c, cm, fm, sm in chunk:
         e = encode(g["tokenizer"], c, cm, fm, g["form_index"], sm)
@@ -234,7 +282,17 @@ def train(args):
         torch.set_num_threads(args.threads)
     dev = device(args.device)
     print("device:", dev, flush=True)
-    sents, n_excl = load_corpus(args.corpus, args.exclude)
+    pairs, k = [], 0
+    skip_lines = [int(x) for x in open(args.exclude_lines).read().split()] if args.exclude_lines else []
+    skip_keys = set()
+    if args.pairs:
+        pairs, skip_keys, n_cut = load_pair_examples(args.pairs.split(","), args.exclude)
+        k = pairs_per_batch(args.batch, args.pairs_share)
+        print("real pairs: %d examples (%d dropped as evaluation sentences), %d per batch of %d" % (
+            len(pairs), n_cut, k, args.batch), flush=True)
+        if not pairs:
+            raise SystemExit("--pairs: no usable pair")
+    sents, n_excl = load_corpus(args.corpus, args.exclude, skip_lines, skip_keys)
     random.Random(0).shuffle(sents)
     val_sents, train_sents = sents[:args.val], sents[args.val:]
     print("corpus %d sentences (excluded %d eval sentences), train %d val %d" % (
@@ -269,7 +327,9 @@ def train(args):
         print("warm start from", args.init, ("(new head, random init: %s)" % ", ".join(fresh)) if fresh else "", flush=True)
     model = model.to(dev)
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
-    steps_per_epoch = math.ceil(len(train_sents) / args.batch)
+    syn_batch = args.batch - k
+    epoch_sents = int(len(train_sents) * args.epoch_fraction)
+    steps_per_epoch = math.ceil(epoch_sents / syn_batch)
     total = steps_per_epoch * args.epochs
     sched = torch.optim.lr_scheduler.LambdaLR(
         optim, lambda s: min(1.0, s / max(1, int(0.05 * total))) * max(0.0, (total - s) / total))
@@ -290,9 +350,10 @@ def train(args):
         # errors are generated batch by batch (not the whole corpus at once) to keep memory small
         order = list(range(len(train_sents)))
         random.Random(epoch + 1_000_000 * args.seed).shuffle(order)
+        order = order[:epoch_sents]
         first = start_batch if epoch == start_epoch else 0
         _GEN.update(order=order, sents=train_sents, batch=args.batch, epoch=epoch, seed=args.seed,
-                    tokenizer=tokenizer, form_index=form_index)
+                    tokenizer=tokenizer, form_index=form_index, k=k, pairs=pairs, steps=steps_per_epoch, pair_cache={})
         pool = multiprocessing.get_context("fork").Pool(args.workers) if args.workers else None
         batches = (pool.imap(_make_batch, range(first, steps_per_epoch), chunksize=8) if pool
                    else map(_make_batch, range(first, steps_per_epoch)))
@@ -444,6 +505,15 @@ if __name__ == "__main__":
     t.add_argument("--p-spell", type=float, default=0.12,
                    help="with --spell: share of sentences that also get one spelling error (rarely two)")
     t.add_argument("--spell-loss-weight", type=float, default=1.0)
+    t.add_argument("--pairs", default=None,
+                   help="real error pairs: comma separated jsonl files made by pair_labels.py (or raw src/gold pairs); "
+                        "their sentences are also taken out of the synthetic corpus")
+    t.add_argument("--pairs-share", type=float, default=0.3,
+                   help="with --pairs: share of every batch taken from the real pairs (cycled, reshuffled each pass)")
+    t.add_argument("--exclude-lines", default=None,
+                   help="file with 1-based line numbers of --corpus that must not be used (e.g. used_lines.txt)")
+    t.add_argument("--epoch-fraction", type=float, default=1.0,
+                   help="train on this share of the corpus per epoch (0.3 = a short fine-tune; the schedule follows)")
     t.add_argument("--workers", type=int, default=0, help="processes building batches (0 = in the training process)")
     t.add_argument("--seed", type=int, default=0,
                    help="0 = the recipes as before; another value gives another data order, other errors, other head init")
