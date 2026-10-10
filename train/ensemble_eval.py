@@ -25,6 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tagger_eval as te  # noqa: E402
 
 bench = te.bench
+# splits scored together; "dev2" / "test2" are the public benchmark (data-public/converted), predictions of a run
+# for them live in its own bench-preds2.json so the old bench-preds.json caches stay valid
+SPLITS = ("dev", "test", "official")
+PUBLIC = {"dev2": "dev2.jsonl", "test2": "test2.jsonl"}
 ADD = (0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
 DEL = (0.7, 0.8, 0.9, 0.95, 1.1)
 FORM = (0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
@@ -36,10 +40,10 @@ class Data:
 
     def __init__(self, sets, runs):
         self.sets = sets
-        self.items = sets["dev"] + sets["test"] + sets["official"]
+        self.items = [i for name in SPLITS for i in sets[name]]
         self.bounds = {}
         a = 0
-        for name in ("dev", "test", "official"):
+        for name in SPLITS:
             self.bounds[name] = (a, a + len(sets[name]))
             a += len(sets[name])
         self.runs = []
@@ -83,7 +87,11 @@ class Data:
 
     def _load(self, run):
         name = os.path.basename(os.path.normpath(run))
-        cache = json.load(open(os.path.join(run, "bench-preds.json"), encoding="utf-8"))
+        cache = {}
+        for fname in ("bench-preds.json", "bench-preds2.json"):
+            path = os.path.join(run, fname)
+            if os.path.exists(path):
+                cache.update(json.load(open(path, encoding="utf-8")))
         missing = sum(1 for i in self.items if i["src"] not in cache)
         if missing:
             print("skip %s: cache lacks %d of %d sentences" % (name, missing, len(self.items)), flush=True)
@@ -272,7 +280,18 @@ def selection_stability(data, table, ref, rounds=500, seed=2):
     return sorted(wins.items(), key=lambda x: -x[1]), rounds
 
 
+def load_public():
+    """{"dev2": items, "test2": items} of the public benchmark; the gold has no disputed fragments."""
+    out = {}
+    for name, fname in PUBLIC.items():
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data-public", "converted", fname)
+        out[name] = [{"src": r["src"], "gold": r["gold"], "raw": r["src"], "disputed": [], "doc": r["doc"]}
+                     for r in map(json.loads, open(path, encoding="utf-8"))]
+    return out
+
+
 def main():
+    global SPLITS
     args = sys.argv[1:]
     max_models = 3
     heads, must = ("comma", "form"), ()
@@ -289,6 +308,11 @@ def main():
         max_models = int(args[i + 1])
         del args[i:i + 2]
     sets = bench.load_sets()
+    if "--public" in args:  # score dev + dev2 together as "dev", test + test2 as "test"
+        args.remove("--public")
+        pub = load_public()
+        sets["dev"] = sets["dev"] + pub["dev2"]
+        sets["test"] = sets["test"] + pub["test2"]
     data = Data(sets, args)
     n = {k: len(v) for k, v in sets.items()}
     print("dev %(dev)d test %(test)d official %(official)d" % n)
