@@ -14,7 +14,6 @@ import os
 import shutil
 import sys
 
-import onnx
 import torch
 from torch import nn
 from transformers import AutoModel
@@ -42,7 +41,22 @@ class TaggerModel(nn.Module):
         return self.comma_head(h), self.form_head(h), self.spell_head(h)
 
 
+def compat_tokenizer_json(path):
+    """Rewrite a BPE tokenizer.json so that `tokenizers` 0.19.1 (pinned for Windows 7) reads it.
+
+    tokenizers 0.20+ writes the merges as [a, b] pairs, 0.19 only knows "a b" strings (the newer ones read both).
+    WordPiece files have no merges and stay untouched."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    merges = data.get("model", {}).get("merges")
+    if merges and isinstance(merges[0], list):
+        data["model"]["merges"] = [" ".join(m) for m in merges]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+
 def main():
+    import onnx  # late: the tokenizer helpers above are importable without it
     fp32_only = "--fp32-only" in sys.argv
     run_dir, out_dir = [a for a in sys.argv[1:] if not a.startswith("--")][:2]
     os.makedirs(out_dir, exist_ok=True)
@@ -51,7 +65,10 @@ def main():
     model = TaggerModel(meta["base"], len(meta["form_labels"]), n_spell)
     model.load_state_dict(torch.load(os.path.join(run_dir, "model.pt"), map_location="cpu", weights_only=True))
     model.eval()
-    ids = torch.tensor([[2, 1000, 1001, 1002, 3]])
+    if model.encoder.config.model_type == "roberta":  # <s> ... </s> of this vocabulary; position ids come from input_ids
+        ids = torch.tensor([[1, 1000, 1001, 1002, 2]])
+    else:
+        ids = torch.tensor([[2, 1000, 1001, 1002, 3]])
     outputs = ["comma_logits", "form_logits"] + (["spell_logits"] if n_spell else [])
     fp32 = os.path.join(out_dir, "model.onnx")
     options = dict(opset_version=13, input_names=["input_ids", "attention_mask"], output_names=outputs,
@@ -76,6 +93,7 @@ def main():
     for name in os.listdir(run_dir):
         if name in ("labels.json", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"):
             shutil.copy(os.path.join(run_dir, name), out_dir)
+    compat_tokenizer_json(os.path.join(out_dir, "tokenizer.json"))
     for name in names:
         print("%s %.0f MB" % (name, os.path.getsize(os.path.join(out_dir, name)) / 2 ** 20))
 

@@ -16,7 +16,7 @@ import time
 
 import torch
 from torch import nn
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from corrupt import (COMMA_ADD, COMMA_DEL, COMMA_KEEP, FORM_KEEP, SPELL_LABELS,  # noqa: E402
@@ -66,6 +66,19 @@ def load_weights(model, state):
     if missing or unexpected:
         raise RuntimeError("checkpoint does not fit the model: missing %s, unexpected %s" % (missing, unexpected))
     return [k for k in model.state_dict() if k.startswith("spell_head.") and k not in state]
+
+
+def load_base_tokenizer(base):
+    """Tokenizer of a fresh base model.
+
+    ruBert models are cased; the default BertTokenizer lowercases and strips accents, turning
+    "информационной" into "информационнои" and hiding exactly the endings the model has to fix.
+    RoBERTa (byte-level BPE) gets add_prefix_space=True: every word, the first one too, is tokenized as
+    "Ġword" like in running text; the offsets exclude the space (trim_offsets), so a word's first token
+    starts exactly at the word, as with WordPiece."""
+    if AutoConfig.from_pretrained(base).model_type == "roberta":
+        return AutoTokenizer.from_pretrained(base, add_prefix_space=True)
+    return AutoTokenizer.from_pretrained(base, do_lower_case=False, strip_accents=False)
 
 
 def encode(tokenizer, text, comma=None, form=None, form_index=None, spell=None):
@@ -241,9 +254,7 @@ def train(args):
     if args.init:
         tokenizer = AutoTokenizer.from_pretrained(args.init)  # warm start: the tokenizer the weights learned with
     else:
-        # ruBert models are cased; the default BertTokenizer lowercases and strips accents, turning
-        # "информационной" into "информационнои" and hiding exactly the endings the model has to fix
-        tokenizer = AutoTokenizer.from_pretrained(args.base, do_lower_case=False, strip_accents=False)
+        tokenizer = load_base_tokenizer(args.base)
     tokenizer.save_pretrained(args.out)
     meta = {"base": args.base, "form_labels": form_labels, "comma_labels": COMMA_LABELS}
     if args.spell:
