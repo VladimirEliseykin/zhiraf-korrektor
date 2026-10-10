@@ -213,6 +213,9 @@ def train(args):
     # teaches the model to "find" errors in correct text, so the density is configurable
     ERROR_DENSITY.update(p_clean=args.p_clean, max_edits=args.max_edits, p_single=args.p_single, p_form=args.p_form,
                          placement=not args.uniform_placement)
+    if args.realistic:
+        # round 9: errors as in the dev profile (train/error_profile.py); the count follows the sentence length
+        ERROR_DENSITY.update(realistic=True, error_rate=args.error_rate, form_scale=args.form_scale)
     SPELL_DENSITY.update(p_spell=args.p_spell if args.spell else 0.0)
     if args.threads:
         torch.set_num_threads(args.threads)
@@ -416,6 +419,15 @@ if __name__ == "__main__":
     t.add_argument("--p-form", type=float, default=0.45, help="share of word-form edits among the errors (rest are commas)")
     t.add_argument("--uniform-placement", action="store_true",
                    help="pick error places uniformly (generator before round 4, as in round 3)")
+    t.add_argument("--realistic", action="store_true",
+                   help="realistic error generator (corrupt_realistic): every place gets an error with its measured "
+                        "real rate times --error-rate; --p-clean/--p-single/--p-form/--uniform-placement are ignored, "
+                        "--max-edits caps the errors per sentence")
+    t.add_argument("--error-rate", type=float, default=10.0,
+                   help="with --realistic: error density as a multiple of real documents (1 = about 0.13 errors per "
+                        "sentence; 10 is about the density of the old commas recipe, 3 of the old forms recipe)")
+    t.add_argument("--form-scale", type=float, default=1.0,
+                   help="with --realistic: extra weight of word-form errors against commas (real mix: 40%% forms)")
     t.add_argument("--spell", action="store_true",
                    help="add the spelling head (JOIN/HYPHEN/SPLIT/LOWER/UPPER); a warm start keeps the other heads")
     t.add_argument("--p-spell", type=float, default=0.12,
