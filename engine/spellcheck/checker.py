@@ -44,7 +44,14 @@ CHECK_COMMA, CHECK_FORM = 0.3, 0.3
 # within the false budget, but over budget end to end), max >= 0.3 11 / 40, min >= 0.2 10 / 7 (the pure agreement band).
 # Measured end to end, "mean" >= 0.3 gave highlighted 18% / false check 2.6 per 100 (budget 2.2): not worth it, so
 # the shipped setting is the pure agreement band (min >= 0.2: 17% / 2.1); the hybrid stays available for retuning.
-CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more confident of R5 and base-cased-forms, see CHECK_FORM_ENS
+CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more confident of the two forms models, see CHECK_FORM_ENS
+# Forms models since the realistic-errors round: gpu-base-forms-real-s1 (forms) + gpu-base-forms-real-s2 (forms-2),
+# same thresholds as the earlier R5 + base-cased-forms pair (min 0.8 error, max 0.8 check), same size and speed.
+#   dev | test right / false at "error", official false in brackets: R5 + base-cased-forms 16 / 2 | 22 / 5 (1);
+#   real-s1 + real-s2 17 / 1 | 26 / 5 (1) (paired bootstrap on test: right +4, CI -5..13, false +-0: a modest gain).
+#   End to end (3100 gold / 1563 official): fixed 37% -> 39%, highlighted 13% -> 12%, missed 50% -> 49%, endings
+#   fixed 38 -> 42 of 127; false error 0.5 -> 0.5, false check 2.0 -> 2.2 (budget 2.2; forms check false 15 -> 21),
+#   official false error 0.1 / check 0.5 unchanged.
 # Forms (train/ensemble_eval.py, right / false form edits on dev at "error", clean official false alarms in brackets):
 #   R5 alone 0.9: 14 / 1 (1);  R5 + base-cased-forms min 0.8: 16 / 2 (1), min 0.9: 12 / 1 (0);
 #   R5 + base-cased-spell (its forms head) min 0.9: 9 / 1 (0), 0.8: 14 / 3 (2); R5 + both min 0.8: 14 / 2 (0).
@@ -60,7 +67,7 @@ CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more 
 ENSEMBLE_COMBINE = {"commas": "mean", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3, "forms": 2}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.8, 0.8, 0.2
-SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = R5 + base-cased-forms (forms-2): error = both agree >= 0.8; check = CHECK_COMBINE max >= 0.8
+SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = gpu-base-forms-real-s1 (forms) + -s2 (forms-2): error = both agree >= 0.8; check = CHECK_COMBINE max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
 #   JOIN   0.9: 10 / 1, no official false alarm (0.3 is the check band: still nothing sure)
