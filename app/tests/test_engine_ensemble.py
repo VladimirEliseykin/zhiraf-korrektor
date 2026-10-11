@@ -196,6 +196,7 @@ def test_job_progress_counts_both_passes(models_dir):
 def test_hybrid_check_level_uses_the_softer_score(models_dir, monkeypatch):
     blind = {}
     specs = [AGREE, AGREE, blind]  # the third model sees nothing: min 0, mean 0.63, first 0.95
+    monkeypatch.setattr(checker_module, "CHECK_COMMA_ENS", 0.2)  # the shipped check band (0.5) hides a mean of 0.63
     assert commas(models(models_dir, specs))[0] == []
     monkeypatch.setitem(checker_module.CHECK_COMBINE, "commas", "mean")
     assert commas(models(models_dir, specs))[0] == [("MODEL_COMMA", "check")]
@@ -229,9 +230,9 @@ def test_a_single_model_keeps_the_single_thresholds(models_dir):
 
 
 def test_three_models_use_the_ensemble_thresholds(models_dir):
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.85)] * 3))[0] == [("MODEL_COMMA", "error")]  # mean >= 0.8
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "check")]  # mean < 0.8
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 3))[0] == [("MODEL_COMMA", "check")]  # >= 0.2
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.95)] * 3))[0] == [("MODEL_COMMA", "error")]  # mean >= 0.9
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "check")]  # mean < 0.9, min >= 0.5
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 3))[0] == []  # under the check band 0.5
 
 
 def test_two_models_fall_back_to_the_single_thresholds(models_dir):
@@ -250,10 +251,10 @@ def del_levels(c):
 
 def test_delete_needs_every_model_and_the_ensemble_delete_threshold(models_dir):
     sure = {"del_after": {"знаем", "сказал"}}
-    assert del_levels(models(models_dir, [dict(sure, del_p=0.85)] * 3)) == [[("MODEL_COMMA_DEL", "error")]] * 2  # >= 0.8
+    assert del_levels(models(models_dir, [dict(sure, del_p=0.95)] * 3)) == [[("MODEL_COMMA_DEL", "error")]] * 2  # mean >= 0.9
     one_blind = [dict(sure, del_p=0.95), dict(sure, del_p=0.95), {}]
-    assert del_levels(models(models_dir, one_blind)) == [[], []]  # the mean 0.63 is under 0.8
-    assert del_levels(models(models_dir, [dict(sure, del_p=0.75)] * 3)) == [[], []]  # under 0.8
+    assert del_levels(models(models_dir, one_blind)) == [[], []]  # the mean 0.63 is under 0.9
+    assert del_levels(models(models_dir, [dict(sure, del_p=0.85)] * 3)) == [[], []]  # under 0.9
     assert del_levels(models(models_dir, [dict(sure, del_p=0.85)])) == [[], []]  # a single model needs 0.9
 
 
@@ -338,7 +339,7 @@ def test_earlier_predictions_are_stored_compactly(models_dir):
 
 def test_forms_ensemble_thresholds_are_pinned():
     # R5 + base-cased-forms, min: measured on dev by train/ensemble_eval.py (see the comment in checker.py)
-    assert checker_module.ENSEMBLE_SIZE == {"commas": 3, "forms": 2}
+    assert checker_module.ENSEMBLE_SIZE == {"commas": 3, "forms": 3}
     assert (checker_module.SURE_FORM_ENS, checker_module.CHECK_FORM_ENS) == (0.8, 0.8)
     assert checker_module.ENSEMBLE_COMBINE["forms"] == "min"
 
@@ -373,4 +374,4 @@ def test_commas_ensemble_thresholds_are_pinned(monkeypatch):
     assert checker_module.ENSEMBLE_SIZE["commas"] == 3
     assert checker_module.ENSEMBLE_COMBINE["commas"] == "mean"
     assert checker_module.CHECK_COMBINE["commas"] == "min"
-    assert (checker_module.SURE_COMMA_ENS, checker_module.SURE_DEL_ENS, checker_module.CHECK_COMMA_ENS) == (0.8, 0.8, 0.2)
+    assert (checker_module.SURE_COMMA_ENS, checker_module.SURE_DEL_ENS, checker_module.CHECK_COMMA_ENS) == (0.9, 0.9, 0.5)

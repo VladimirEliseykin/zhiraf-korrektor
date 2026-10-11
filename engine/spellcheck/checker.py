@@ -64,10 +64,18 @@ CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more 
 # The ensemble thresholds below were measured for exactly ENSEMBLE_SIZE models in the stage. With fewer (a
 # missing or half-copied commas-3) the stage uses the single-model thresholds above: the min of two models at
 # those is at least as precise as one model alone, and nothing about two models was measured.
+# Real-error fine-tunes (train_pub + llm_pairs mixed into the batches, lr 1e-5): commas = ft-r6-commas (commas) +
+# ft-r6-share5 (commas-2, pairs 0.5) + large-commas-e0 (commas-3), mean, ADD 0.9 DEL 0.9; forms = the FORM heads of
+# ft-large-commas (forms) + ft-r6-commas (forms-2; same weights as commas) + ft-r3-commas (forms-3), min 0.8 (check bands: commas min >= 0.5, forms max >= 0.8).
+# Selected on old dev + dev2 with old-gold false <= shipped + 1 and clean official false <= shipped; right / false:
+#   commas   shipped R3+R6+e0 mean .8/.8: dev 32/2 + dev2 357/177, test 32/6 + test2 339/147
+#            now                          : dev 33/3 + dev2 398/169, test 31/6 + test2 356/136
+#   forms    shipped real-s1+s2 min .8    : dev 17/1 + dev2 13/34,   test 26/5 + test2 17/22
+#            now                          : dev 19/1 + dev2 27/11,   test 34/10 + test2 26/13
 ENSEMBLE_COMBINE = {"commas": "mean", "forms": "min"}
-ENSEMBLE_SIZE = {"commas": 3, "forms": 2}
-SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.8, 0.8, 0.2
-SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = gpu-base-forms-real-s1 (forms) + -s2 (forms-2): error = both agree >= 0.8; check = CHECK_COMBINE max >= 0.8
+ENSEMBLE_SIZE = {"commas": 3, "forms": 3}
+SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.9, 0.9, 0.5
+SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = FORM heads of ft-large-commas (forms) + ft-r6-commas (forms-2) + ft-r3-commas (forms-3): error = all agree >= 0.8; check = max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
 #   JOIN   0.9: 10 / 1, no official false alarm (0.3 is the check band: still nothing sure)
