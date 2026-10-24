@@ -72,9 +72,15 @@ CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more 
 #            now                          : dev 33/3 + dev2 398/169, test 31/6 + test2 356/136
 #   forms    shipped real-s1+s2 min .8    : dev 17/1 + dev2 13/34,   test 26/5 + test2 17/22
 #            now                          : dev 19/1 + dev2 27/11,   test 34/10 + test2 26/13
-ENSEMBLE_COMBINE = {"commas": "mean", "forms": "min"}
+# Round 8 (hard negatives incl. false-deletion ones): commas = gpu-ft8-gpu-ft5-r6-commas (commas) + gpu-ft8-gpu-ft-r3-commas
+# (commas-2) + gpu-ft8-large-commas-e0 (commas-3), "min", ADD 0.75 DEL 0.9, check band min >= 0.5. forms-2 stays the round-5 ft-r6 export.
+# Selected on old dev + dev2 with old-gold false <= 11: dev 38/2 + dev2 465/167, test 34/9 + test2 424/177 (previous commas set: 33/3 + 398/169, 31/6 + 356/136).
+# End to end (3100 gold / 1563 official), previous -> this: fixed 38 -> 40%, highlighted 16 -> 15%, missed 46 -> 46%; commas fixed 64 -> 70 of 131;
+# false error 0.5 -> 0.6 per 100 (TRADE-OFF: over the 0.5 budget by 3 findings: ADD 6 + DEL 3 vs 5 + 2), false check 2.1 -> 1.9 (total false 2.6 -> 2.5);
+# official false 0.1 / 0.9 -> 0.1 / 0.8. ADD 0.70 gave the same false error 0.6 and 2 official errors. Accepted by the controller.
+ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3, "forms": 3}
-SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.9, 0.9, 0.5
+SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.75, 0.9, 0.5
 SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = FORM heads of ft-large-commas (forms) + ft-r6-commas (forms-2) + ft-r3-commas (forms-3): error = all agree >= 0.8; check = max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:

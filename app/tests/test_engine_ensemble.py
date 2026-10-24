@@ -19,7 +19,7 @@ SENTENCES = ["Документ определяющий порядок утве�
 def pure_agreement(monkeypatch):
     """The combiner tests below look at min / mean alone: no separate check score unless a test asks for it."""
     monkeypatch.setattr(checker_module, "CHECK_COMBINE", {})
-    monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "min")  # the shipped commas combiner is "mean"
+    monkeypatch.setitem(checker_module.ENSEMBLE_COMBINE, "commas", "min")  # the shipped commas combiner is "min" too; explicit for the tests that switch it
 
 
 def commas(c, stages=("commas",), **kwargs):
@@ -230,8 +230,8 @@ def test_a_single_model_keeps_the_single_thresholds(models_dir):
 
 
 def test_three_models_use_the_ensemble_thresholds(models_dir):
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.95)] * 3))[0] == [("MODEL_COMMA", "error")]  # mean >= 0.9
-    assert commas(models(models_dir, [dict(AGREE, add_p=0.75)] * 3))[0] == [("MODEL_COMMA", "check")]  # mean < 0.9, min >= 0.5
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.8)] * 3))[0] == [("MODEL_COMMA", "error")]  # min >= 0.75
+    assert commas(models(models_dir, [dict(AGREE, add_p=0.6)] * 3))[0] == [("MODEL_COMMA", "check")]  # 0.5 <= min < 0.75
     assert commas(models(models_dir, [dict(AGREE, add_p=0.25)] * 3))[0] == []  # under the check band 0.5
 
 
@@ -370,8 +370,8 @@ def test_sure_form_is_an_error_even_when_the_check_threshold_is_higher():
 
 def test_commas_ensemble_thresholds_are_pinned(monkeypatch):
     monkeypatch.undo()  # the autouse fixture above replaces the shipped combiners
-    # R3 + R6 + large-commas-e0, mean (train/ensemble_eval.py; see the comment in checker.py)
+    # ft8-ft5-r6 + ft8-ft-r3 + ft8-large-commas-e0, min (train/ensemble_eval.py; see the comment in checker.py)
     assert checker_module.ENSEMBLE_SIZE["commas"] == 3
-    assert checker_module.ENSEMBLE_COMBINE["commas"] == "mean"
+    assert checker_module.ENSEMBLE_COMBINE["commas"] == "min"
     assert checker_module.CHECK_COMBINE["commas"] == "min"
-    assert (checker_module.SURE_COMMA_ENS, checker_module.SURE_DEL_ENS, checker_module.CHECK_COMMA_ENS) == (0.9, 0.9, 0.5)
+    assert (checker_module.SURE_COMMA_ENS, checker_module.SURE_DEL_ENS, checker_module.CHECK_COMMA_ENS) == (0.75, 0.9, 0.5)
