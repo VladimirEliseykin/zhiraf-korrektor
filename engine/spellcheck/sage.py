@@ -126,7 +126,7 @@ MESSAGES = {"typo": "Опечатка", "join": "Слитное, раздель�
 LEVELS = {"typo": "error", "join": "error"}
 # Edits of the fine-tuned model that are NOT kept on their own (SAGE-only commas / endings are 25-50% right) but
 # VOTE: an earlier stage's "check" finding with exactly this edit becomes an "error". Only endings vote (MODEL_FORM):
-# dev+test the confirmed checks were 22 right / 4 false for endings and 2 right / 2 false for commas (and one more
+# end to end the confirmed checks were 12 right / 2 false for endings and 2 right / 3 false for commas (and one more
 # false error on clean official text), so commas do not vote. See sage-ft-report.md.
 VOTES = {"ending": "MODEL_FORM"}
 
