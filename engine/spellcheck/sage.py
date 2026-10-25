@@ -14,6 +14,7 @@ import onnxruntime as ort
 from tokenizers import Tokenizer
 
 from .guards import TOKEN, allowed
+from .morph import morph
 
 DECODER_START_ID = 0
 EOS_ID = 2
@@ -90,8 +91,18 @@ def typo_like(x, y):
     return previous[-1] <= 1
 
 
+def same_lemma(x, y):
+    lx = {p.normal_form for p in morph.parse(x.lower())[:3]}
+    ly = {p.normal_form for p in morph.parse(y.lower())[:3]}
+    return bool(lx & ly)
+
+
 def edit_class(before, after, lexicon):
     b, a = before.strip(), after.strip()
+    if (b, a) == ("", ","):
+        return "comma"
+    if (b, a) == (",", ""):
+        return "comma_del"
     if WORD.findall(b) and WORD.findall(a):
         # joined/hyphenated spelling changes only spaces and hyphens BETWEEN letters, never case or edges:
         # "Угроза" -> "- угроза" after a code is not a spelling fix
@@ -102,14 +113,46 @@ def edit_class(before, after, lexicon):
                 and len(WORD.findall(b)) == len(WORD.findall(a)) \
                 and all(typo_like(x, y) for x, y in zip(WORD.findall(b), WORD.findall(a)) if x != y):
             return "typo"
+        wb, wa = WORD.findall(b), WORD.findall(a)
+        if len(wb) == len(wa) == 1 and wb[0] == b and wa[0] == a and b[0].isupper() == a[0].isupper() \
+                and b.lower() != a.lower() and lexicon.known(a) and same_lemma(b, a):
+            return "ending"
     return "other"
 
 
-MESSAGES = {"typo": "Опечатка", "join": "Слитное, раздельное или дефисное написание"}
+MESSAGES = {"typo": "Опечатка", "join": "Слитное, раздельное или дефисное написание",
+            "comma": "Здесь нужна запятая", "comma_del": "Лишняя запятая", "ending": "Неверное окончание"}
+# Edits kept on their own, as "error" (dictionary-checked slips of the keys, joined/hyphenated spelling).
+LEVELS = {"typo": "error", "join": "error"}
+# Edits of the fine-tuned model that are NOT kept on their own (SAGE-only commas / endings are 25-50% right) but
+# VOTE: an earlier stage's "check" finding with exactly this edit becomes an "error". Only endings vote (MODEL_FORM):
+# dev+test the confirmed checks were 22 right / 4 false for endings and 2 right / 2 false for commas (and one more
+# false error on clean official text), so commas do not vote. See sage-ft-report.md.
+VOTES = {"ending": "MODEL_FORM"}
 
 
-def findings(src, out, lexicon):
-    """Findings for the SAGE edits the policy keeps, as char spans of src."""
+def trimmed(cls, start, end, before, after):
+    """(start, end, fix) of the edit: a comma edit shrinks to the comma (an insertion or a one-char deletion, like the
+    comma tagger's), an ending edit to its word without the spaces around it."""
+    if cls in ("comma", "comma_del"):
+        p = 0
+        while p < min(len(before), len(after)) and before[p] == after[p]:
+            p += 1
+        q = 0
+        while q < min(len(before), len(after)) - p and before[-1 - q] == after[-1 - q]:
+            q += 1
+        return start + p, end - q, after[p:len(after) - q]
+    lead = len(before) - len(before.lstrip())
+    return start + lead, end - (len(before) - len(before.rstrip()) ), after.strip()
+
+
+def findings(src, out, lexicon, levels=None, seen=()):
+    """Findings for the SAGE edits the policy keeps, as char spans of src.
+
+    seen: the findings of the earlier stages for this sentence (same coordinates); levels: override of LEVELS
+    (evaluation: every class at one level, no voting)."""
+    explicit = levels is not None
+    levels = levels if explicit else LEVELS
     a, b = TOKEN.findall(src), TOKEN.findall(out)
     starts, pos = [], 0
     for t in a:
@@ -126,7 +169,17 @@ def findings(src, out, lexicon):
         if not allowed(before, after, i1 == 0, i2 > last_word, first_lower):
             continue
         cls = edit_class("".join(before), "".join(after), lexicon)
-        if cls in MESSAGES:
-            result.append({"start": starts[i1], "end": starts[i2], "level": "error", "rule": "SAGE_" + cls.upper(),
-                           "fix": "".join(after), "message": MESSAGES[cls]})
+        level = levels.get(cls)
+        if cls in MESSAGES and level is None and not explicit and cls in VOTES:
+            start, end, fix = trimmed(cls, starts[i1], starts[i2], "".join(before), "".join(after))
+            if any(f["level"] == "check" and f["rule"] == VOTES[cls] and f["start"] == start and f["end"] == end
+                   and f.get("fix") == fix for f in seen):
+                result.append({"start": start, "end": end, "level": "error", "rule": "SAGE_" + cls.upper(), "fix": fix,
+                               "message": MESSAGES[cls]})
+        elif level:
+            start, end, fix = starts[i1], starts[i2], "".join(after)
+            if cls in ("comma", "comma_del", "ending"):
+                start, end, fix = trimmed(cls, start, end, "".join(before), fix)
+            result.append({"start": start, "end": end, "level": level, "rule": "SAGE_" + cls.upper(),
+                           "fix": fix, "message": MESSAGES[cls]})
     return result

@@ -89,7 +89,7 @@ def generate(model_dir, env, names, out_dir, limit, batch, threads):
                 with torch.inference_mode():
                     out = model.generate(**enc, max_length=int(enc["input_ids"].size(1) * 1.5) + 4)
                 dt = time.time() - t1
-                for s, o in zip(chunk, tok.batch_decode(out, skip_special_tokens=True)):
+                for s, o in zip(chunk, tok.batch_decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)):
                     f.write(json.dumps({"src": s, "out": o, "sec": dt / len(chunk)}, ensure_ascii=False) + "\n")
                 f.flush()
                 if (b // batch) % 20 == 0:

@@ -55,3 +55,34 @@ def test_typo_keeps_the_first_letter_and_one_edit(lexicon):
 def test_sage_accepts_only_slips_of_the_keys():
     assert sage.typo_like("населени", "населения")
     assert not sage.typo_like("асимметрично", "симметрично")  # a stripped prefix is another word
+
+
+# --- the fine-tuned SAGE votes on endings of the taggers (train/sage_policy_eval.py, sage-ft-report.md) ---
+
+def check_mark(rule, start, end, fix):
+    return {"start": start, "end": end, "level": "check", "rule": rule, "fix": fix, "message": ""}
+
+
+def test_sage_alone_adds_no_comma_or_ending(lexicon):
+    assert sage.findings("Он сказал что дом стоит.", "Он сказал, что дом стоит.", lexicon, seen=[]) == []
+    assert sage.findings("Мы видим красивая дом.", "Мы видим красивый дом.", lexicon,
+                         seen=[check_mark("MODEL_FORM", 0, 2, "Мы")]) == []   # the tagger marked another place
+    assert sage.findings("Мы видим красивая дом.", "Мы видим красивый дом.", lexicon) == []
+
+
+def test_sage_commas_do_not_vote(lexicon):
+    assert sage.findings("Он сказал что дом стоит.", "Он сказал, что дом стоит.", lexicon,
+                         seen=[check_mark("MODEL_COMMA", 9, 9, ",")]) == []
+    assert sage.findings("Это дом, и сад.", "Это дом и сад.", lexicon, seen=[check_mark("MODEL_COMMA", 7, 8, "")]) == []
+
+
+def test_sage_confirms_a_tagger_check_ending(lexicon):
+    src, out = "Мы видим красивая дом.", "Мы видим красивый дом."
+    got = sage.findings(src, out, lexicon, seen=[check_mark("MODEL_FORM", 9, 17, "красивый")])
+    assert [(f["rule"], f["level"], f["fix"]) for f in got] == [("SAGE_ENDING", "error", "красивый")]
+    assert src[got[0]["start"]:got[0]["end"]] == "красивая"
+
+
+def test_sage_keeps_joined_spelling_as_before(lexicon):
+    got = sage.findings("Кто то пришёл.", "Кто-то пришёл.", lexicon)
+    assert [(f["rule"], f["level"]) for f in got] == [("SAGE_JOIN", "error")]

@@ -165,33 +165,38 @@ def describe(model_dir):
     return res
 
 
-def check(new_dir, reference, sentences, model_dir, threads=2):
+def check(new_dir, reference, sentences, model_dir, threads=2, same_weights=True):
     """Same I/O names / IR / opset as the reference, and the engine's Sage gives identical corrections."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "engine"))
     from spellcheck.sage import Sage
-    a, b = describe(new_dir), describe(reference)
+    a = describe(new_dir)
+    b = describe(reference)    # the I/O contract: the files the engine ships with (weights may differ)
     for f in a:
         print(f, "IR", a[f]["ir"], "(reference %d)" % b[f]["ir"], "opset", a[f]["opset"], "| same input names:",
               sorted(a[f]["inputs"]) == sorted(b[f]["inputs"]), "| same output names:", sorted(a[f]["outputs"]) == sorted(b[f]["outputs"]))
         assert a[f]["ir"] <= IR and all(v <= 13 for d, v in a[f]["opset"] if d == "")
-    new, ref = Sage(new_dir, threads), Sage(reference, threads)
+        assert sorted(a[f]["inputs"]) == sorted(b[f]["inputs"]) and sorted(a[f]["outputs"]) == sorted(b[f]["outputs"])
+    new = Sage(new_dir, threads)
+    ref = Sage(reference, threads) if same_weights else None
     tok = AutoTokenizer.from_pretrained(model_dir)
     hf = AutoModelForSeq2SeqLM.from_pretrained(model_dir).eval()
     same_ref = same_hf = 0
     for text in sentences:
-        o_new, o_ref = new.correct(text), ref.correct(text)
+        o_new = new.correct(text)
+        o_ref = ref.correct(text) if ref else o_new   # fine-tuned weights: only the HF comparison is meaningful
         enc = tok([text], return_tensors="pt")
         with torch.inference_mode():
             g = hf.generate(**enc, max_length=int(enc["input_ids"].size(1) * 1.5) + 4)
-        o_hf = tok.decode(g[0], skip_special_tokens=True)
+        o_hf = tok.decode(g[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)  # as `tokenizers` in the engine
         from spellcheck.sage import postprocess
         o_hf = postprocess(text, o_hf)
         same_ref += o_new == o_ref
         same_hf += o_new == o_hf
         if o_new != o_ref or o_new != o_hf:
             print("DIFF", repr(text), "\n  new:", repr(o_new), "\n  ref:", repr(o_ref), "\n  hf: ", repr(o_hf))
-    print("outputs equal to the reference ONNX: %d/%d, to HF generate: %d/%d" % (same_ref, len(sentences), same_hf, len(sentences)))
-    return same_ref == len(sentences)
+    print("outputs equal to the reference ONNX: %s, to HF generate: %d/%d" % (
+        "%d/%d" % (same_ref, len(sentences)) if ref else "n/a (different weights)", same_hf, len(sentences)))
+    return same_ref == len(sentences) and same_hf == len(sentences)
 
 
 def main():
@@ -202,8 +207,11 @@ def main():
     ap.add_argument("--reference", default="/home/general/vm/win7/engine/models/sage")
     ap.add_argument("--sentences", help="jsonl with src, or a text file with one sentence per line")
     ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--skip-export", action="store_true", help="only --check files that are already exported (the engine needs pymorphy3, the export venv may lack it)")
+    ap.add_argument("--fine-tuned", action="store_true", help="weights differ from the reference: compare with HF generate only")
     a = ap.parse_args()
-    export_all(a.model, a.out)
+    if not a.skip_export:
+        export_all(a.model, a.out)
     if a.check:
         path = a.sentences or "/home/general/vm/win7/data-public/converted/dev2.jsonl"
         sents = []
@@ -212,7 +220,7 @@ def main():
             if line:
                 sents.append(json.loads(line)["src"] if line.startswith("{") else line)
         step = max(1, len(sents) // a.n)
-        ok = check(a.out, a.reference, sents[::step][:a.n], a.model)
+        ok = check(a.out, a.reference, sents[::step][:a.n], a.model, same_weights=not a.fine_tuned)
         sys.exit(0 if ok else 1)
 
 

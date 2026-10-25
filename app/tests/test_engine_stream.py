@@ -86,3 +86,19 @@ def test_stopped_flag(models_dir):
     assert c.stopped is True
     list(c.stream(SENTENCES))
     assert c.stopped is False
+
+
+def test_sage_promotes_a_check_ending_of_an_earlier_stage(models_dir):
+    from fakes import FakeSage, FakeTagger
+    sentences = ["Работа с информации ведётся."]
+    factories = {"commas": lambda: FakeTagger(), "forms": lambda: FakeTagger(forms={"информации": ("case:ablt", 0.5)}),
+                 "spell": lambda: FakeTagger(), "sage": lambda: FakeSage({"с информации": "с информацией"})}
+    got = {}
+    for stage, i, items in Checker(models_dir, factories=factories).stream(sentences):
+        got.setdefault(stage, []).extend((f["rule"], f["level"], f["fix"]) for f in items)
+    assert got["forms"] == [("MODEL_FORM", "check", "информацией")]
+    assert got["sage"] == [("SAGE_ENDING", "error", "информацией")]
+    # resumed at the SAGE stage there is nothing to confirm: no promotion
+    resumed = [f for stage, i, items in Checker(models_dir, factories=factories).stream(sentences, start=("sage", 0))
+               for f in items]
+    assert resumed == []

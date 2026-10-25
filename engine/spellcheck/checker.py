@@ -364,6 +364,7 @@ class Checker:
         self.process = process  # psutil.Process for memory statistics, optional
         self.stats = {}
         self.stopped = False
+        self._seen = {}
         # a stage maps to one factory or a list of them (several models, the first is the main one)
         self.factories = factories or {
             "sage": lambda: sage.Sage(os.path.join(models_dir, "sage"), threads),
@@ -427,7 +428,9 @@ class Checker:
             return None  # stopped right after the last silent step: do not load the last model for nothing
         model = makers[-1]()
         if stage == "sage":
-            return lambda i, body: sage.findings(body, model.correct(body), self.lexicon)
+            # the earlier stages' findings of the sentence let SAGE confirm (promote) their "check" commas / endings;
+            # a stream resumed at this stage has none of them, then nothing is promoted
+            return lambda i, body: sage.findings(body, model.correct(body), self.lexicon, seen=self._seen.get(i, ()))
         how = ENSEMBLE_COMBINE.get(stage, "min")
         measured = len(makers) == ENSEMBLE_SIZE.get(stage)  # thresholds exist only for the measured model count
         check_how = CHECK_COMBINE.get(stage) if measured else None
@@ -460,6 +463,7 @@ class Checker:
         (which also counts the silent passes).
         """
         self.stopped = False
+        self._seen = {}  # sentence index -> findings (body coordinates) of the stages before SAGE
         prepared = [prepare(s) for s in sentences]
         skipping = start is not None
         for stage in stages:
@@ -482,6 +486,8 @@ class Checker:
                 marker, body = prepared[i]
                 found = []
                 for f in check(i, body):
+                    if stage != "sage":
+                        self._seen.setdefault(i, []).append(f)
                     level = visible_level(f["level"], self.strict)
                     if level is not None:
                         found.append(dict(f, level=level, start=f["start"] + len(marker), end=f["end"] + len(marker)))
