@@ -110,6 +110,10 @@ def main():
     ap.add_argument("--evals-per-epoch", type=int, default=2)
     ap.add_argument("--warmup", type=float, default=0.05)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--synth-err", help="jsonl of synthetic error pairs (sage_synth.py): all of them every epoch")
+    ap.add_argument("--synth-clean", help="jsonl of synthetic clean pairs: sampled to reach --clean-share")
+    ap.add_argument("--real-repeat", type=int, default=1, help="the real error pairs and real clean ones count this many times per epoch")
+    ap.add_argument("--split-seed", type=int, help="seed of the held-out split (default --seed); keep it equal between runs to share the held-out set")
     ap.add_argument("--limit", type=int, default=0, help="smoke test: use this many error pairs (and the clean share of them)")
     ap.add_argument("--max-steps", type=int, default=0, help="smoke test: stop after this many steps")
     a = ap.parse_args()
@@ -117,31 +121,39 @@ def main():
     bf16 = device == "cuda"
     torch.manual_seed(a.seed)
     rng = random.Random(a.seed)
+    split_rng = random.Random(a.split_seed if a.split_seed is not None else a.seed)
     os.makedirs(a.out, exist_ok=True)
     tok = AutoTokenizer.from_pretrained(a.base)
     assert tok("а")["input_ids"][0] == 50357, "the tokenizer must prepend <LM>"
     err, d1 = encode(tok, read(os.path.join(a.data, "sage_err.jsonl")), a.max_len)
     clean, d2 = encode(tok, read(os.path.join(a.data, "sage_clean.jsonl")), a.max_len)
-    rng.shuffle(err)
-    rng.shuffle(clean)
+    split_rng.shuffle(err)
+    split_rng.shuffle(clean)
+    synth_err, synth_clean = [], []
+    if a.synth_err:
+        synth_err, d3 = encode(tok, read(a.synth_err), a.max_len)
+    if a.synth_clean:
+        synth_clean, d4 = encode(tok, read(a.synth_clean), a.max_len)
     if a.limit:
         err, clean = err[:a.limit], clean[:int(a.limit * 2)]
     ve, vc = int(len(err) * a.val_frac), int(len(clean) * a.val_frac)
     val, err_tr, clean_tr = err[:ve] + clean[:vc], err[ve:], clean[vc:]
-    hard = [e for e in clean_tr if e["pool"] == "hard"]
-    other = [e for e in clean_tr if e["pool"] != "hard"]
-    need = round(len(err_tr) * a.clean_share / (1 - a.clean_share))
-    print("err train %d clean train %d (hard %d) val %d (err %d) | too long dropped: err %d clean %d | clean per epoch %d "
-          "(share %.2f) | device %s bf16 %s" % (len(err_tr), len(clean_tr), len(hard), len(val), ve, d1, d2, need,
-                                                  a.clean_share, device, bf16), flush=True)
+    hard = [e for e in clean_tr if e["pool"] == "hard"] * a.real_repeat
+    other = [e for e in clean_tr if e["pool"] != "hard"] * a.real_repeat + synth_clean
+    errs = err_tr * a.real_repeat + synth_err
+    need = round(len(errs) * a.clean_share / (1 - a.clean_share))
+    print("err train %d (real %d x%d + synthetic %d) clean pool %d (hard %d, other real %d, synthetic %d) val %d (err %d) | "
+          "too long dropped: err %d clean %d | clean per epoch %d (share %.2f) | device %s bf16 %s" % (
+              len(errs), len(err_tr), a.real_repeat, len(synth_err), len(clean_tr) + len(synth_clean), len(hard), len(other) - len(synth_clean),
+              len(synth_clean), len(val), ve, d1, d2, need, a.clean_share, device, bf16), flush=True)
 
     def epoch_items():
         picked = rng.sample(hard, min(len(hard), need))
         rest = need - len(picked)
         picked += rng.sample(other, min(rest, len(other)))
-        return err_tr + picked
+        return errs + picked
 
-    steps_per_epoch = math.ceil((len(err_tr) + need) / a.batch)
+    steps_per_epoch = math.ceil((len(errs) + need) / a.batch)
     total = steps_per_epoch * a.epochs
     model = AutoModelForSeq2SeqLM.from_pretrained(a.base).to(device)
     model.train()
