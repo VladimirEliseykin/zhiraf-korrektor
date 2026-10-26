@@ -62,6 +62,17 @@ def variant_fn(name, **kw):
                     f = dict(f, level="error", voted=True)
                 new.append(f)
             base = new
+        veto = kw.get("veto")   # error-level tagger commas SAGE does not reproduce: demoted to "check" or dropped
+        if veto:
+            new = []
+            for f in base:
+                if f["level"] == "error" and f["rule"] in ("MODEL_COMMA", "MODEL_COMMA_DEL") and \
+                        not any(c["cls"] in ("comma", "comma_del") for c in keys.get(edit_keys(src, f), [])):
+                    if veto == "drop":
+                        continue
+                    f = dict(f, level="check")
+                new.append(f)
+            base = new
         only = kw.get("only", {})   # class -> level for SAGE edits that no engine finding touches
         for c in cands:
             lvl = only.get(c["cls"])
@@ -90,6 +101,23 @@ VARIANTS = [
     ("B+: promote + only comma_del error", "x", {"promote": ("comma", "comma_del", "ending"), "only": {"comma_del": "error"}}),
     ("B+: promote + only comma_del+comma check", "x", {"promote": ("comma", "comma_del", "ending"), "only": {"comma_del": "check", "comma": "check"}}),
     ("B+: promote + only comma_del+ending check", "x", {"promote": ("comma", "comma_del", "ending"), "only": {"comma_del": "check", "ending": "check"}}),
+]
+
+
+E = ("ending",)
+EC = ("ending", "comma")
+VARIANTS2 = [
+    ("shipped state: ft typo/join + ending vote", "x", {"promote": E}),
+    ("+ comma vote", "x", {"promote": EC}),
+    ("+ comma vote, veto demote", "x", {"promote": EC, "veto": "demote"}),
+    ("+ comma vote, veto drop", "x", {"promote": EC, "veto": "drop"}),
+    ("ending vote, veto demote (no comma vote)", "x", {"promote": E, "veto": "demote"}),
+    ("+ comma vote + only comma add check", "x", {"promote": EC, "only": {"comma": "check"}}),
+    ("+ comma vote + only comma_del check", "x", {"promote": EC, "only": {"comma_del": "check"}}),
+    ("+ comma vote + only comma+comma_del check", "x", {"promote": EC, "only": {"comma": "check", "comma_del": "check"}}),
+    ("+ comma vote + only ending check", "x", {"promote": EC, "only": {"ending": "check"}}),
+    ("+ comma vote + only all three check", "x", {"promote": EC, "only": {"comma": "check", "comma_del": "check", "ending": "check"}}),
+    ("+ comma vote, veto demote + only comma_del check", "x", {"promote": EC, "veto": "demote", "only": {"comma_del": "check"}}),
 ]
 
 
@@ -141,6 +169,7 @@ def main():
     ap.add_argument("eval_dir")
     ap.add_argument("--engine-findings", default="/home/general/vm/win7-profiles/work/findings-R8b.json")
     ap.add_argument("--sets", nargs="+", default=["dev", "test", "official"])
+    ap.add_argument("--round2", action="store_true", help="the variants of the commas-vote round instead of the first list")
     ap.add_argument("--detail", help="print per-rule false counts of the variants whose label contains this")
     a = ap.parse_args()
     sets = bench.load_sets()
@@ -157,7 +186,7 @@ def main():
         else:
             print("SAGE-only candidates official (all false)", sorted(breakdown(sets[name], eng, cands).items()))
     print("%-40s | %s" % ("variant", "  ".join("%-34s" % s for s in a.sets)))
-    for label, mode, kw in VARIANTS:
+    for label, mode, kw in (VARIANTS2 if a.round2 else VARIANTS):
         fn = variant_fn(mode, **kw)
         cells = []
         for name in a.sets:
