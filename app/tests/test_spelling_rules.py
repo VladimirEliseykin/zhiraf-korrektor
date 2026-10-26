@@ -94,3 +94,23 @@ def test_sage_confirms_a_tagger_check_ending(lexicon):
 def test_sage_keeps_joined_spelling_as_before(lexicon):
     got = sage.findings("Кто то пришёл.", "Кто-то пришёл.", lexicon)
     assert [(f["rule"], f["level"]) for f in got] == [("SAGE_JOIN", "error")]
+
+
+# --- letter case: only a capitalised adjective / verb right after a comma is lowered (sage-case-report.md) ---
+
+def case_found(src, out, lexicon):
+    return [(f["rule"], f["level"], src[f["start"]:f["end"]], f["fix"]) for f in sage.findings(src, out, lexicon)]
+
+
+def test_sage_lowers_a_capitalised_adjective_after_a_comma(lexicon):
+    got = case_found("Так как это важно, Любая деятельность нужна.", "Так как это важно, любая деятельность нужна.", lexicon)
+    assert got == [("SAGE_CASE_LOWER", "error", "Любая", "любая")]
+
+
+def test_sage_keeps_every_other_case_edit_out(lexicon):
+    # a noun after a comma (a defined term), no comma before, a quotation, the start of a sentence, a name
+    assert case_found("Это важно, Требования нужны.", "Это важно, требования нужны.", lexicon) == []
+    assert case_found("Это важная Деятельность нужна.", "Это важная деятельность нужна.", lexicon) == []
+    assert case_found("Он сказал, «Любая деятельность нужна».", "Он сказал, «любая деятельность нужна».", lexicon) == []
+    assert case_found("ранее внедренная программа.", "Ранее внедренная программа.", lexicon) == []
+    assert case_found("Это важно, Иван пришёл.", "Это важно, иван пришёл.", lexicon) == []

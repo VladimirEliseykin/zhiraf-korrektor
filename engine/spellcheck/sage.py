@@ -13,7 +13,7 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
-from .guards import TOKEN, allowed
+from .guards import TOKEN, allowed, quoted_spans
 from .morph import morph
 
 DECODER_START_ID = 0
@@ -149,6 +149,23 @@ def trimmed(cls, start, end, before, after):
     return start + lead, end - (len(before) - len(before.rstrip()) ), after.strip()
 
 
+# A capitalised adjective / participle / verb right after a comma is no title and no name ("..., Любая деятельность"):
+# SAGE lowering it is kept as an error. Every other case edit of SAGE is dropped: nouns (titles, defined terms such as
+# "Требования"), sentence starts and capitals of names were 3 right / 8 false on dev+test, see sage-case-report.md.
+LOWERABLE_POS = {"ADJF", "ADJS", "PRTF", "PRTS", "VERB", "INFN", "ADVB", "PRED", "NPRO", "GRND"}
+NOT_A_COMMON_WORD = ("Name", "Surn", "Patr", "Geox", "Orgn", "Abbr", "Trad")
+
+
+def lowered_after_comma(src, start, end, before, after, quotes):
+    """True for SAGE's edit "Слово" -> "слово" (first letter only) of a word that follows ", " outside quotes."""
+    if len(before) < 4 or before[:1].isupper() is False or after != before[:1].lower() + before[1:] or not before[1:].islower():
+        return False
+    if src[max(0, start - 2):start] != ", " or any(a < start < b for a, b in quotes) or not before.isalpha():
+        return False
+    parse = morph.parse(before.lower())[0]
+    return parse.tag.POS in LOWERABLE_POS and not any(g in parse.tag for g in NOT_A_COMMON_WORD)
+
+
 def findings(src, out, lexicon, levels=None, seen=()):
     """Findings for the SAGE edits the policy keeps, as char spans of src.
 
@@ -165,10 +182,16 @@ def findings(src, out, lexicon, levels=None, seen=()):
     first_lower = src.lstrip()[:1].islower()
     last_word = max((i for i, t in enumerate(a) if t.strip()), default=0)
     result = []
+    quotes = quoted_spans(src)
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
         if op == "equal":
             continue
         before, after = a[i1:i2], b[j1:j2]
+        if op == "replace" and len(before) == len(after) == 1 and not explicit and \
+                lowered_after_comma(src, starts[i1], starts[i2], before[0], after[0], quotes):
+            result.append({"start": starts[i1], "end": starts[i2], "level": "error", "rule": "SAGE_CASE_LOWER",
+                           "fix": after[0], "message": "Слово пишется с маленькой буквы"})
+            continue
         if not allowed(before, after, i1 == 0, i2 > last_word, first_lower):
             continue
         cls = edit_class("".join(before), "".join(after), lexicon)
