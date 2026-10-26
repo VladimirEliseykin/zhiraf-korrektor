@@ -125,10 +125,13 @@ MESSAGES = {"typo": "Опечатка", "join": "Слитное, раздель�
 # Edits kept on their own, as "error" (dictionary-checked slips of the keys, joined/hyphenated spelling).
 LEVELS = {"typo": "error", "join": "error"}
 # Edits of the fine-tuned model that are NOT kept on their own (SAGE-only commas / endings are 25-50% right) but
-# VOTE: an earlier stage's "check" finding with exactly this edit becomes an "error". Only endings vote (MODEL_FORM):
-# end to end the confirmed checks were 12 right / 2 false for endings and 2 right / 3 false for commas (and one more
-# false error on clean official text), so commas do not vote. See sage-ft-report.md.
-VOTES = {"ending": "MODEL_FORM"}
+# VOTE: an earlier stage's mark with exactly this edit becomes an "error". class -> (rule, level of the mark):
+#  - ending: a "check" MODEL_FORM finding;
+#  - comma_del: a hidden "candidate" MODEL_COMMA_DEL (comma ensemble min DEL in [VOTE_DEL, sure) of checker.py): the
+#    taggers alone are not sure enough to show it, with SAGE removing the same comma it is an error;
+#  - added commas do not vote: confirmed check commas were 2 right / 3 false (and a false error on clean official).
+# See sage-ft-report.md and sage-comma-band-report.md.
+VOTES = {"ending": ("MODEL_FORM", "check"), "comma_del": ("MODEL_COMMA_DEL", "candidate")}
 
 
 def trimmed(cls, start, end, before, after):
@@ -172,7 +175,8 @@ def findings(src, out, lexicon, levels=None, seen=()):
         level = levels.get(cls)
         if cls in MESSAGES and level is None and not explicit and cls in VOTES:
             start, end, fix = trimmed(cls, starts[i1], starts[i2], "".join(before), "".join(after))
-            if any(f["level"] == "check" and f["rule"] == VOTES[cls] and f["start"] == start and f["end"] == end
+            rule, mark = VOTES[cls]
+            if any(f["level"] == mark and f["rule"] == rule and f["start"] == start and f["end"] == end
                    and f.get("fix") == fix for f in seen):
                 result.append({"start": start, "end": end, "level": "error", "rule": "SAGE_" + cls.upper(), "fix": fix,
                                "message": MESSAGES[cls]})

@@ -81,6 +81,10 @@ CHECK_COMBINE = {"commas": "min", "forms": "max"}  # forms check band: the more 
 ENSEMBLE_COMBINE = {"commas": "min", "forms": "min"}
 ENSEMBLE_SIZE = {"commas": 3, "forms": 3}
 SURE_COMMA_ENS, SURE_DEL_ENS, CHECK_COMMA_ENS = 0.75, 0.9, 0.5
+# Comma deletions the taggers are only half sure of (ensemble min DEL in [0.5, 0.9)) are hidden candidates that the SAGE
+# stage turns into errors when it removes the same comma (sage.VOTES). Measured on dev | test (b: fixed 43 | 42% -> 45 | 45%,
+# comma fixes 36 | 34 -> 40 | 39, false error 0.39 | 0.71 -> 0.39 | 0.77, official unchanged): sage-comma-band-report.md.
+VOTE_DEL_ENS = 0.5
 SURE_FORM_ENS, CHECK_FORM_ENS = 0.8, 0.8  # forms = FORM heads of ft-large-commas (forms) + ft-r6-commas (forms-2) + ft-r3-commas (forms-3): error = all agree >= 0.8; check = max >= 0.8
 # Spelling head (base-cased-spell), per label: (error threshold or None, check threshold or None). A label that is
 # absent is disabled. Measured with train/spell_eval.py on the real gold (dev + test), right / other findings:
@@ -104,6 +108,8 @@ def visible_level(level, strict):
     """'strict' findings (a rule that also hits legitimate capitals) are shown as 'check' only in strict mode."""
     if level == "strict":
         return "check" if strict else None
+    if level == "candidate":
+        return None  # a mark only SAGE can confirm (sage.VOTES): remembered for the SAGE stage, never shown
     return level
 
 
@@ -114,7 +120,7 @@ def breaks_grammar(text, start, end, new):
     return touching(text[:start] + new + text[end:], start + len(new)) > touching(text, end)
 
 
-def comma_findings(body, preds, sure_add=SURE_COMMA, sure_del=SURE_DEL, check_add=CHECK_COMMA):
+def comma_findings(body, preds, sure_add=SURE_COMMA, sure_del=SURE_DEL, check_add=CHECK_COMMA, vote_del=None):
     if BIBLIOGRAPHY.search(body):
         return []
     quotes = quoted_spans(body)
@@ -129,6 +135,9 @@ def comma_findings(body, preds, sure_add=SURE_COMMA, sure_del=SURE_DEL, check_ad
             # of long participial phrases (measured on clean official text)
             if p["comma"]["DEL"] >= sure_del:
                 out.append({"start": m.end(), "end": m.end() + 1, "level": "error", "rule": "MODEL_COMMA_DEL",
+                            "fix": "", "message": "Лишняя запятая", "p": round(p["comma"]["DEL"], 3)})
+            elif vote_del is not None and p["comma"]["DEL"] >= vote_del:
+                out.append({"start": m.end(), "end": m.end() + 1, "level": "candidate", "rule": "MODEL_COMMA_DEL",
                             "fix": "", "message": "Лишняя запятая", "p": round(p["comma"]["DEL"], 3)})
             continue
         if i == len(ms) - 1 or body[m.end():m.end() + 1] != " ":
@@ -435,7 +444,7 @@ class Checker:
         measured = len(makers) == ENSEMBLE_SIZE.get(stage)  # thresholds exist only for the measured model count
         check_how = CHECK_COMBINE.get(stage) if measured else None
         if stage == "commas":
-            ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS) if measured else {}
+            ens = dict(sure_add=SURE_COMMA_ENS, sure_del=SURE_DEL_ENS, check_add=CHECK_COMMA_ENS, vote_del=VOTE_DEL_ENS) if measured else {}
             to_findings = lambda body, p: comma_findings(body, p, **ens)  # noqa: E731
         else:
             ens = dict(sure=SURE_FORM_ENS, check=CHECK_FORM_ENS) if measured else {}
@@ -486,7 +495,7 @@ class Checker:
                 marker, body = prepared[i]
                 found = []
                 for f in check(i, body):
-                    if stage != "sage":
+                    if stage != "sage" and f["level"] in ("check", "candidate"):  # all the votes need
                         self._seen.setdefault(i, []).append(f)
                     level = visible_level(f["level"], self.strict)
                     if level is not None:

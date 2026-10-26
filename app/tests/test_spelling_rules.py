@@ -70,10 +70,18 @@ def test_sage_alone_adds_no_comma_or_ending(lexicon):
     assert sage.findings("Мы видим красивая дом.", "Мы видим красивый дом.", lexicon) == []
 
 
-def test_sage_commas_do_not_vote(lexicon):
+def test_added_commas_do_not_vote(lexicon):
     assert sage.findings("Он сказал что дом стоит.", "Он сказал, что дом стоит.", lexicon,
                          seen=[check_mark("MODEL_COMMA", 9, 9, ",")]) == []
-    assert sage.findings("Это дом, и сад.", "Это дом и сад.", lexicon, seen=[check_mark("MODEL_COMMA", 7, 8, "")]) == []
+
+
+def test_sage_confirms_a_hidden_comma_deletion_candidate(lexicon):
+    src, out = "Это дом, и сад.", "Это дом и сад."
+    candidate = dict(check_mark("MODEL_COMMA_DEL", 7, 8, ""), level="candidate")
+    got = sage.findings(src, out, lexicon, seen=[candidate])
+    assert [(f["rule"], f["level"], f["start"], f["end"], f["fix"]) for f in got] == [("SAGE_COMMA_DEL", "error", 7, 8, "")]
+    assert sage.findings(src, out, lexicon, seen=[]) == []                      # SAGE alone does not delete commas
+    assert sage.findings(src, out, lexicon, seen=[dict(candidate, start=3, end=4)]) == []   # another comma
 
 
 def test_sage_confirms_a_tagger_check_ending(lexicon):

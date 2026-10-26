@@ -6,6 +6,8 @@ This is the number that matters: the exact code path the program runs. Documents
 (context = all their sentences), gold sentences are scored by fixed / highlighted / missed errors.
 """
 import collections
+import ctypes
+import gc
 import json
 import os
 import sys
@@ -61,6 +63,15 @@ def main():
     engine = checker.Checker(models_dir, threads)
     without = {}  # the same run without the "spell" stage: the baseline for what the spelling head adds
     results = {}
+    # resumable: a finished document is appended to <out>.partial (jsonl), a rerun after a kill (the 4 GB cap) skips it
+    partial = out_path + ".partial"
+    done_docs = set()
+    if os.path.exists(partial):
+        for line in open(partial, encoding="utf-8"):
+            rec = json.loads(line)
+            done_docs.add((rec["set"], rec["doc"]))
+            for src, (f, b) in rec["items"].items():
+                results[src], without[src] = f, b
     started = time.perf_counter()
     for set_name in ("real", "official"):
         items = sets["dev"] + sets["test"] if set_name == "real" else sets["official"]
@@ -68,10 +79,20 @@ def main():
         for item in items:
             groups[item.get("doc") or official_doc[item["src"]]].append(item)
         for doc, group in groups.items():
+            if (set_name, doc) in done_docs:
+                continue
             found, base = check_both(engine, [i["src"] for i in group], by_doc.get(doc))
             for item, f, b in zip(group, found, base):
                 results[item["src"]] = f
                 without[item["src"]] = b
+            with open(partial, "a", encoding="utf-8") as pf:
+                pf.write(json.dumps({"set": set_name, "doc": doc, "items": {i["src"]: [results[i["src"]], without[i["src"]]] for i in group}},
+                                    ensure_ascii=False) + "\n")
+            gc.collect()
+            try:
+                ctypes.CDLL("libc.so.6").malloc_trim(0)   # hand freed memory back: a long run sits near the 4 GB cap
+            except OSError:
+                pass
         print("%s checked in %.0f s" % (set_name, time.perf_counter() - started), flush=True)
     json.dump(results, open(out_path, "w", encoding="utf-8"), ensure_ascii=False)
     for label, res in (("WITHOUT the spell stage (baseline)", without), ("WITH the spell stage", results)):

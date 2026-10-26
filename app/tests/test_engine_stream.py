@@ -102,3 +102,20 @@ def test_sage_promotes_a_check_ending_of_an_earlier_stage(models_dir):
     resumed = [f for stage, i, items in Checker(models_dir, factories=factories).stream(sentences, start=("sage", 0))
                for f in items]
     assert resumed == []
+
+
+def test_sage_confirms_a_half_sure_comma_deletion_of_the_ensemble(models_dir):
+    from fakes import FakeSage, FakeTagger
+    sentences = ["Документ, определяющий порядок утверждён."]
+
+    def run(sage_fixes):
+        factories = {"commas": [lambda: FakeTagger(del_after={"Документ"}, del_p=0.6) for _ in range(3)],
+                     "forms": lambda: FakeTagger(), "spell": lambda: FakeTagger(), "sage": lambda: FakeSage(sage_fixes)}
+        got = {}
+        for stage, i, items in Checker(models_dir, factories=factories).stream(sentences):
+            got.setdefault(stage, []).extend((f["rule"], f["level"], f["fix"]) for f in items)
+        return got
+    got = run({"Документ,": "Документ"})
+    assert got["commas"] == []                                   # 0.6 is below the sure deletion threshold: not shown
+    assert got["sage"] == [("SAGE_COMMA_DEL", "error", "")]
+    assert run({})["sage"] == []                                 # SAGE keeps the comma: nothing shown at all
