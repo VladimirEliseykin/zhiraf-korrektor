@@ -23,6 +23,26 @@ def test_marks_are_ordered_and_first_is_current():
     assert s.current is s.marks[0] and s.marks[0].original == "Так же"
 
 
+def test_current_follows_the_first_mark_until_the_reader_moves():
+    s = ReviewSession([TEXT, "Второй абзац текста"])
+    s.add_findings(1, 0, [f(0, 6, "Вторый")])          # a stage finds something in paragraph 1 first
+    assert s.current.paragraph == 1
+    s.add_findings(0, 0, [f(20, 30, "информацией")])   # a later stage finds something higher up
+    assert (s.current.paragraph, s.current.start) == (0, 20)
+    s.go_next()                                         # the reader moved: later findings no longer pull
+    assert s.current.paragraph == 1
+    s.add_findings(0, 0, [f(0, 6, "Также", rule="RULE_TAKZHE")])
+    assert s.current.paragraph == 1
+
+
+def test_hiding_checks_does_not_count_as_the_reader_moving():
+    s = ReviewSession([TEXT, "Второй абзац текста"])
+    s.add_findings(1, 0, [f(0, 6, "Вторый", level="check")])
+    s.set_show_checks(False)
+    s.add_findings(0, 0, [f(20, 30, "информацией")])
+    assert (s.current.paragraph, s.current.start) == (0, 20)
+
+
 def test_accept_moves_on_and_shifts_later_marks():
     s = session()
     edits = s.accept()

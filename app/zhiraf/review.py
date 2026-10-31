@@ -69,6 +69,9 @@ class ReviewSession:
         self.dictionary = dictionary
         self.marks = []
         self.current = None
+        # until the reader moves or decides, the current mark is the first one in the text, wherever the check
+        # found it: the stages finish at different times and a later stage may find something higher up
+        self._settled = False
         self.show_checks = True   # False: «check» marks stay in the list but navigation never lands on them
         self._next_id = 1
         self._by_par = {}   # paragraph -> its marks sorted by _key (index over self.marks)
@@ -140,6 +143,11 @@ class ReviewSession:
             added.append(mark)
         if self.current is None:
             self.current = next(iter(self.open_marks()), None)
+        elif not self._settled:
+            # only the new marks can come before the current one: no scan of every mark (big documents)
+            earlier = [m for m in added if self._reachable(m) and _key(m) < _key(self.current)]
+            if earlier:
+                self.current = min(earlier, key=_key)
         return added
 
     # --- navigation ---
@@ -154,10 +162,13 @@ class ReviewSession:
     def set_show_checks(self, value):
         self.show_checks = bool(value)
         if self.current is not None and not self._reachable(self.current):
+            settled = self._settled
             self.current = None
             self.go_next()
+            self._settled = settled   # hiding marks is not the reader moving
 
     def go_next(self):
+        self._settled = True
         opens = self.open_marks()
         if not opens:
             self.current = None
@@ -169,6 +180,7 @@ class ReviewSession:
         return self.current
 
     def go_prev(self):
+        self._settled = True
         opens = self.open_marks()
         if not opens:
             self.current = None
@@ -183,11 +195,13 @@ class ReviewSession:
         mark = next((m for m in self.marks if m.id == mark_id), None)
         if mark is not None and self._reachable(mark):
             self.current = mark
+            self._settled = True
         return mark
 
     # --- decisions ---
 
     def _change(self, marks, status, texts, word=None):
+        self._settled = True
         group, edits = [], []
         for mark, text in zip(marks, texts):
             if status in APPLIED:
