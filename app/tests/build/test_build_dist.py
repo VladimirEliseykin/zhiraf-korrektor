@@ -81,7 +81,7 @@ def test_successful_build(world, capsys):
 
 def test_check_violation_fails_and_cleans_up(world, monkeypatch, capsys):
     args, out = world
-    monkeypatch.setattr(build_dist, "check", lambda d: ["forbidden file: python/_ssl.pyd"])
+    monkeypatch.setattr(build_dist, "check", lambda d, m=None: ["forbidden file: python/_ssl.pyd"])
     assert build_dist.main(args) == 1
     assert not (out / "Жираф.Корректор").exists()
     assert not (out / "Жираф.Корректор.tmp").exists()

@@ -65,7 +65,7 @@ def build(out, cache, models, repo, copy_models):
             ico = os.path.join(work, "zhiraf.ico")
             make_icon(os.path.join(repo, "app", "zhiraf", "ui", "art", "logo.png"), ico)
             make_launcher(toolchain_dir(files, cache), os.path.join(tmp, NAME + ".exe"), ico)
-        violations = check(tmp)
+        violations = check(tmp, models)
         if violations:
             raise RuntimeError("проверка папки не пройдена:\n" + "\n".join("  " + v for v in violations))
         os.replace(tmp, final)

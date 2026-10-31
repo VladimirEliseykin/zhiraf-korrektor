@@ -41,7 +41,8 @@ def clean(tmp_path):
     for n in REQUIRED_DLLS:
         put(dist, os.path.join(PY, n))
     for rel in ("python/pythonw.exe", "Жираф.Корректор.exe", "models/vocab.tsv", "engine/art/start.jpg",
-                "app/zhiraf/ui/art/logo.png", "python/socket.py", "python/_socket.pyd", "python/select.pyd"):
+                "app/zhiraf/ui/art/logo.png", "python/socket.py", "python/_socket.pyd", "python/select.pyd",
+                "python/qt.conf", "python/python37._pth"):
         put(dist, rel)
     put(dist, "app/zhiraf/ok.py", b"import os\n")
     make_zip(dist, ["json/__init__.py", "urllib/parse.py"])
@@ -55,7 +56,7 @@ def dirty(tmp_path):
         put(dist, os.path.join(PY, n))
     for rel in ("python/pythonw.exe", "Жираф.Корректор.exe", "models/vocab.tsv", "engine/art/start.jpg",
                 "app/zhiraf/ui/art/logo.png", "python/socket.py", "python/_socket.pyd", "python/select.pyd",
-                "python/_ssl.pyd", "python/_hashlib.pyd", "python/libssl-1_1.dll", "python/libcrypto-1_1.dll",
+                "python/qt.conf", "python/python37._pth", "python/_ssl.pyd", "python/_hashlib.pyd", "python/libssl-1_1.dll", "python/libcrypto-1_1.dll",
                 "python/_asyncio.pyd", "python/_overlapped.pyd", "python/_msi.pyd", "python/winsound.pyd",
                 PYSIDE + "/QtNetwork.pyd", PYSIDE + "/Qt5Network.dll", PYSIDE + "/QtWebEngineCore.pyd",
                 PYSIDE + "/Qt5WebEngineCore.dll", PYSIDE + "/QtQml.pyd", PYSIDE + "/Qt5Quick.dll",
@@ -247,3 +248,56 @@ def test_zip_rebuild_failure_leaves_no_temporary_file(dirty, monkeypatch):
     with pytest.raises(OSError):
         prune_mod.prune(str(dirty))
     assert not [n for n in os.listdir(os.path.join(str(dirty), PY)) if n.endswith(".tmp")]
+
+
+def _source_models(tmp_path):
+    models = tmp_path / "src-models"
+    for name in ("commas", "commas-3"):
+        put(models, name + "/model.onnx", b"m")
+        put(models, name + "/model.onnx.data", b"d")
+        put(models, name + "/vocab.txt", b"v")
+    put(models, "sage/encoder_model.onnx", b"e")
+    put(models, "sage/encoder_model.onnx.data", b"e")
+    put(models, "vocab.tsv", b"a")
+    return models
+
+
+@pytest.fixture
+def with_models(clean, tmp_path):
+    models = _source_models(tmp_path)
+    for rel in ("commas/model.onnx", "commas/model.onnx.data", "commas-3/model.onnx", "commas-3/model.onnx.data",
+                "sage/encoder_model.onnx", "sage/encoder_model.onnx.data"):
+        put(clean, "models/" + rel, b"x")
+    return clean, str(models)
+
+
+def test_check_models_clean(with_models):
+    dist, models = with_models
+    assert check_dist.check(str(dist), models) == []
+
+
+def test_check_requires_qt_conf(clean):
+    os.remove(os.path.join(str(clean), PY, "qt.conf"))
+    found = check_dist.check(str(clean))
+    assert len(found) == 1 and "qt.conf" in found[0]
+
+
+def test_check_requires_the_pth(clean):
+    os.remove(os.path.join(str(clean), PY, "python37._pth"))
+    found = check_dist.check(str(clean))
+    assert len(found) == 1 and "python37._pth" in found[0]
+
+
+def test_check_flags_an_empty_model_data_file(with_models):
+    dist, models = with_models
+    open(os.path.join(str(dist), "models", "commas-3", "model.onnx.data"), "wb").close()
+    found = check_dist.check(str(dist), models)
+    assert len(found) == 1 and "commas-3" in found[0] and "model.onnx.data" in found[0]
+
+
+def test_check_flags_a_missing_model_folder(with_models):
+    import shutil
+    dist, models = with_models
+    shutil.rmtree(os.path.join(str(dist), "models", "commas-3"))
+    found = check_dist.check(str(dist), models)
+    assert len(found) == 2 and all("commas-3" in v for v in found)

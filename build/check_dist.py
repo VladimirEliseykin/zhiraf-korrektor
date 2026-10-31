@@ -1,6 +1,6 @@
 """Fail the build when the Windows 7 folder holds a network module or lacks something it needs (host only).
 
-Usage: python -m build.check_dist <dist>   (prints the violations, exits with 1 when there are any)
+Usage: python -m build.check_dist <dist> [<source models dir>]   (prints the violations, exits with 1 when there are any)
 """
 import ast
 import os
@@ -23,6 +23,10 @@ REQUIRED_FILES = (
     os.path.join("models", "vocab.tsv"),
     os.path.join("engine", "art", "start.jpg"),
     os.path.join("app", "zhiraf", "ui", "art", "logo.png"),
+    # hard to find when missing: without qt.conf Qt loses its plugins under a Cyrillic or spaced path (the window
+    # does not open), without the ._pth the shipped Python does not see the program and its libraries
+    os.path.join("python", "qt.conf"),
+    os.path.join("python", "python37._pth"),
 )
 
 
@@ -61,8 +65,30 @@ def _source_violations(dist):
                     yield "network import in %s: %s" % (os.path.relpath(path, dist), n)
 
 
-def check(dist):
-    """Violations found in the folder; an empty list means it is clean."""
+def _model_violations(dist, models):
+    """Every model folder of the source models dir must be in the folder with all its ONNX files non-empty.
+
+    A missing or half-copied one degrades the quality silently (the checker skips what it cannot load).
+    """
+    for name in sorted(os.listdir(models)):
+        source = os.path.join(models, name)
+        if not os.path.isdir(source):
+            continue
+        for part in sorted(os.listdir(source)):
+            if not (part.endswith(".onnx") or part.endswith(".onnx.data")):
+                continue
+            path = os.path.join(dist, "models", name, part)
+            if not os.path.isfile(path):
+                yield "missing: %s" % os.path.join("models", name, part)
+            elif os.path.getsize(path) == 0:
+                yield "empty model file: %s" % os.path.join("models", name, part)
+
+
+def check(dist, models=None):
+    """Violations found in the folder; an empty list means it is clean.
+
+    `models` is the source models dir the build was given: its folders are the list of models the folder must hold.
+    """
     found = []
     zip_path = os.path.join(dist, prune_mod.PYTHON_DIR, prune_mod.ZIP_NAME)
     if os.path.isfile(zip_path):
@@ -72,14 +98,16 @@ def check(dist):
     for rel in [os.path.join("python", n) for n in REQUIRED_DLLS] + list(REQUIRED_FILES):
         if not os.path.isfile(os.path.join(dist, rel)):
             found.append("missing: %s" % rel)
+    if models is not None:
+        found += list(_model_violations(dist, models))
     return found
 
 
 def main(argv):
-    if len(argv) != 1:
-        print("usage: python -m build.check_dist <dist>")
+    if len(argv) not in (1, 2):
+        print("usage: python -m build.check_dist <dist> [<source models dir>]")
         return 2
-    violations = check(argv[0])
+    violations = check(argv[0], argv[1] if len(argv) == 2 else None)
     print(SOCKET_NOTE)
     for v in violations:
         print("VIOLATION: " + v)
