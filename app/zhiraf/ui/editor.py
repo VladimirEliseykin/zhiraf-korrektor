@@ -158,16 +158,18 @@ class ReviewEditor(QTextEdit):
         keep = None
         if not self.isReadOnly():
             keep = self.document().findBlock(self.textCursor().position()).blockNumber()
+        targets = [i for i in sorted(set(indexes)) if i != keep and 0 <= i < self.document().blockCount()]
+        if not targets:
+            return
         cursor = QTextCursor(self.document())
         self._writing = True
         undo = self.isUndoRedoEnabled()
-        if self.isReadOnly():
-            self.setUndoRedoEnabled(False)
+        # a program write is never an undo step; undoing it later would bring back text the session no longer has,
+        # so in edit mode the reader's older history goes with it
+        self.setUndoRedoEnabled(False)
         cursor.beginEditBlock()
         try:
-            for i in sorted(set(indexes)):
-                if i == keep or not 0 <= i < self.document().blockCount():
-                    continue
+            for i in targets:
                 block = self.document().findBlockByNumber(i)
                 cursor.setPosition(block.position())
                 cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
@@ -176,8 +178,7 @@ class ReviewEditor(QTextEdit):
         finally:
             cursor.endEditBlock()
             self._writing = False
-            if self.isReadOnly():
-                self.setUndoRedoEnabled(undo)
+            self.setUndoRedoEnabled(undo)
 
     def set_show_checks(self, value):
         self._show_checks = value
@@ -316,25 +317,34 @@ class ReviewEditor(QTextEdit):
         painter.drawText(QRect(24, max(top, 0) + 3, view.width() - 48, 20), Qt.AlignRight | Qt.AlignTop,
                          UNCHECKED_LABEL)
 
-    def _paint_skipped(self, painter):
+    def skipped_labels(self):
+        """[(mark id, rect in viewport)] for the label of each skipped mark in view: one per mark."""
         top = self.cursorForPosition(self.viewport().rect().topLeft()).block()
         bottom = self.cursorForPosition(self.viewport().rect().bottomLeft()).block()
-        font = QFont(self.font())
-        font.setPointSizeF(8)
-        painter.setFont(font)
-        painter.setPen(QColor(COLORS["skipped"]))
+        labels, seen = [], set()
         block, stop = top, bottom.next()
         cursor = QTextCursor(self.document())
         while block.isValid() and block != stop:
             it = block.begin()
             while not it.atEnd():
                 fragment = it.fragment()
-                if fragment.charFormat().property(MARK_PROP) == SKIPPED:
+                fmt = fragment.charFormat()
+                mark_id = fmt.property(MARK_ID_PROP)
+                if fmt.property(MARK_PROP) == SKIPPED and mark_id not in seen:
+                    seen.add(mark_id)
                     cursor.setPosition(fragment.position())
-                    rect = self.cursorRect(cursor)
-                    painter.drawText(rect.left(), rect.top() - 1, SKIPPED_LABEL)
+                    labels.append((mark_id, self.cursorRect(cursor)))
                 it += 1
             block = block.next()
+        return labels
+
+    def _paint_skipped(self, painter):
+        font = QFont(self.font())
+        font.setPointSizeF(8)
+        painter.setFont(font)
+        painter.setPen(QColor(COLORS["skipped"]))
+        for _, rect in self.skipped_labels():
+            painter.drawText(rect.left(), rect.top() - 1, SKIPPED_LABEL)
 
     # --- edit mode ---
 
@@ -362,8 +372,48 @@ class ReviewEditor(QTextEdit):
         self.setUndoRedoEnabled(False)
         self.edit_mode_changed.emit(False)
 
+    def _drop_marks_before_edit(self):
+        """The reader is about to change text: take the mark colours off the touched blocks FIRST.
+
+        Done before the change, with the history reset, so that colours are never an undo step of their own
+        (an undo would otherwise bring back a stale, clickable mark the session no longer has).
+        """
+        if self.isReadOnly() or self._doc is None:
+            return
+        cursor = self.textCursor()
+        first = self.document().findBlock(cursor.selectionStart())
+        last = self.document().findBlock(cursor.selectionEnd())
+        marked = []
+        while first.isValid() and first.blockNumber() <= last.blockNumber():
+            if self._has_marks(first):
+                marked.append(first)
+            first = first.next()
+        if marked:
+            self.setUndoRedoEnabled(False)
+            for block in marked:
+                self._strip_marks(block)
+            self.setUndoRedoEnabled(True)
+
+    @staticmethod
+    def _has_marks(block):
+        it = block.begin()
+        while not it.atEnd():
+            if it.fragment().charFormat().hasProperty(MARK_PROP):
+                return True
+            it += 1
+        return False
+
+    def insertPlainText(self, text):
+        self._drop_marks_before_edit()
+        super().insertPlainText(text)
+
     def keyPressEvent(self, event):
         if not self.isReadOnly():
+            edits = (bool(event.text().strip("\x1b")) and not event.modifiers() & Qt.ControlModifier) \
+                or event.key() in (Qt.Key_Backspace, Qt.Key_Delete) \
+                or (event.modifiers() & Qt.ControlModifier and event.key() in (Qt.Key_X, Qt.Key_V))
+            if edits:
+                self._drop_marks_before_edit()
             if event.key() == Qt.Key_Escape:
                 self._leave_edit_mode()
                 return
@@ -380,8 +430,13 @@ class ReviewEditor(QTextEdit):
     def _contents_changed(self, position, removed, added):
         if self._writing or self.isReadOnly() or self._doc is None:
             return
-        self._dirty.add(self.document().findBlock(position).blockNumber())
+        block = self.document().findBlock(position)
+        self._dirty.add(block.blockNumber())
         self._timer.start()
+        if self._session.version(block.blockNumber()) > 0:
+            # the session dropped this paragraph's marks when it took the reader's text; an undo can bring the
+            # colours back, so take them off again (not while the document is still inside the change)
+            QTimer.singleShot(0, lambda n=block.blockNumber(): self._strip_if_stale(n))
 
     def _block_count_changed(self, count):
         if not self._writing and self._doc is not None and count != len(self._doc.paragraphs):
@@ -409,6 +464,11 @@ class ReviewEditor(QTextEdit):
             self._strip_marks(block)
             self.paragraph_edited.emit(i)
 
+    def _strip_if_stale(self, number):
+        block = self.document().findBlockByNumber(number)
+        if block.isValid() and not self._writing:
+            self._strip_marks(block)
+
     def _strip_marks(self, block):
         """Take the mark formatting off a block in place (the reader's cursor stays where it is)."""
         self._writing = True
@@ -422,6 +482,9 @@ class ReviewEditor(QTextEdit):
                 if fmt.hasProperty(MARK_PROP):
                     ranges.append((fragment.position(), fragment.length(), fmt))
                 it += 1
+            if not ranges:
+                return
+            cursor.beginEditBlock()
             for position, length, fmt in ranges:
                 base = bool(fmt.property(BASE_UNDERLINE_PROP))
                 for prop in (MARK_PROP, MARK_ID_PROP, BASE_UNDERLINE_PROP):
@@ -432,5 +495,6 @@ class ReviewEditor(QTextEdit):
                 cursor.setPosition(position)
                 cursor.setPosition(position + length, QTextCursor.KeepAnchor)
                 cursor.setCharFormat(fmt)
+            cursor.endEditBlock()
         finally:
             self._writing = False

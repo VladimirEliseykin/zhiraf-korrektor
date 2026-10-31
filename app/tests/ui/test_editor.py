@@ -327,3 +327,49 @@ def test_accept_all_two_thousand_marks_repaint_is_fast(qtbot):
     print("repaint of %d paragraphs / %d marks: %.2f s" % (len(changed), len(edits), elapsed))
     assert elapsed < 5
     assert editor.document().findBlockByNumber(0).text().startswith("Бумага число")
+
+
+def marked_chars(editor):
+    return sum(len(marked_text(b)) for b in blocks(editor))
+
+
+def test_undo_after_flush_is_one_step_without_stale_marks(qtbot):
+    doc, session = make(["Работа с информации", "вторая"], editable=True)
+    session.add_findings(0, 0, [finding(9, 19, "информацией")])
+    editor = shown(qtbot, doc, session)
+    editor._enter_edit_mode()
+    cursor = editor.textCursor()
+    cursor.setPosition(0)
+    editor.setTextCursor(cursor)
+    editor.insertPlainText("Да. ")
+    editor.flush_edits()
+    assert marked_chars(editor) == 0
+    editor.document().undo()
+    qtbot.wait(20)
+    assert editor.document().firstBlock().text() == "Работа с информации"
+    assert marked_chars(editor) == 0
+
+
+def test_repaint_in_edit_mode_adds_no_undo_step(qtbot):
+    doc, session = make(["Работа с информации", "вторая"], editable=True)
+    session.add_findings(1, 0, [finding(0, 6, "второй")])
+    editor = shown(qtbot, doc, session)
+    editor._enter_edit_mode()
+    cursor = editor.textCursor()
+    cursor.setPosition(2)
+    editor.setTextCursor(cursor)
+    session.accept()
+    editor.repaint_paragraphs([1])
+    assert editor.document().findBlockByNumber(1).text() == "второй"
+    assert not editor.document().isUndoAvailable()
+
+
+def test_skipped_label_is_drawn_once_per_mark_even_if_split_by_bold(qtbot):
+    doc, session = make(["Работа с информации"])
+    doc.paragraphs[0].spans = [Span("Работа с инф"), Span("орма", bold=True), Span("ции")]
+    session.add_findings(0, 0, [finding(9, 19, "информацией")])
+    editor = shown(qtbot, doc, session)
+    session.skip()
+    editor.repaint_paragraphs([0])
+    labels = editor.skipped_labels()
+    assert [mark_id for mark_id, _ in labels] == [session.marks[0].id]
