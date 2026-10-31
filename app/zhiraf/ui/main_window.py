@@ -42,7 +42,27 @@ NOTHING_FOUND = "Ошибок не найдено"
 RESUME = "Продолжить с этого места"
 
 
+WINDOW_SIZE = (1100, 760)
+MIN_SIZE = (800, 560)
+TITLE_BAR = 40  # room for the frame and title bar, which Qt only knows after the window is shown
+
+
 class MainWindow(QMainWindow):
+    def _fit_to_screen(self):
+        """Default size, but never larger than the free part of the screen: on 800×600 (or 1024×600 netbooks) the
+        status bar with «Принять все ошибки» must stay on screen. A screen smaller than the default opens maximised."""
+        screen = QGuiApplication.primaryScreen()
+        free = screen.availableGeometry() if screen is not None else None
+        if free is None or free.width() <= 0:
+            self.resize(*WINDOW_SIZE)
+            self.setMinimumSize(*MIN_SIZE)
+            return
+        room_w, room_h = free.width(), free.height() - TITLE_BAR
+        self.setMinimumSize(min(MIN_SIZE[0], room_w), min(MIN_SIZE[1], room_h))
+        self.resize(min(WINDOW_SIZE[0], room_w), min(WINDOW_SIZE[1], room_h))
+        if room_w < WINDOW_SIZE[0] or room_h < WINDOW_SIZE[1]:
+            self.setWindowState(self.windowState() | Qt.WindowMaximized)
+
     def __init__(self, models_dir, factories=None, parent=None, log_detail=None):
         super().__init__(parent)
         self.models_dir = models_dir
@@ -63,8 +83,7 @@ class MainWindow(QMainWindow):
         self._notice_kind = None
         self._anchor = None
         self.setWindowIcon(QIcon(theme.art_path("logo.png")))
-        self.resize(1100, 760)
-        self.setMinimumSize(800, 560)
+        self._fit_to_screen()
         self._build()
         self._build_actions()
         self._build_shortcuts()

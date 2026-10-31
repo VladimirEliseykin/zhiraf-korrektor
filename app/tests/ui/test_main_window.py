@@ -85,6 +85,15 @@ def set_clipboard(text=None, html=None):
     QGuiApplication.clipboard().setMimeData(mime)
 
 
+def on_comma(w):
+    """Make the missing-comma mark current, as the reader would by clicking it (the first mark in the text is
+    the wrong ending of paragraph FORM)."""
+    mark = next(m for m in w.session.marks if m.paragraph == COMMA)
+    w.session.select(mark.id)
+    w._refresh()
+    return mark
+
+
 def mark_in(w, paragraph):
     return next(m for m in w.session.marks if m.paragraph == paragraph)
 
@@ -122,7 +131,7 @@ def test_open_path_runs_check_and_shows_marks(qtbot, full_models_dir, tmp_path):
 
 def test_keys_review_flow(qtbot, full_models_dir, tmp_path):
     w = opened(qtbot, full_models_dir, tmp_path)
-    first = w.session.current
+    first = on_comma(w)
     QTest.keyClick(w.editor, Qt.Key_Right)
     assert w.session.current is not first
     QTest.keyClick(w.editor, Qt.Key_Left)
@@ -150,7 +159,7 @@ def test_arrows_move_the_cursor_in_edit_mode(qtbot, full_models_dir):
 
 def test_typing_in_manual_edit_keeps_the_keys_to_itself(qtbot, full_models_dir, tmp_path):
     w = opened(qtbot, full_models_dir, tmp_path)
-    first = w.session.current
+    first = on_comma(w)
     other = next(m for m in w.session.marks if m is not first)
     QTest.mouseClick(w.card.manual_button, Qt.LeftButton)
     assert w.card.manual_edit.isVisible()
@@ -744,3 +753,42 @@ def test_accept_all_is_disabled_but_visible_in_edit_mode(qtbot, full_models_dir,
     QTest.keyClick(w.editor, Qt.Key_Escape)
     assert w.editor.isReadOnly() and button.isVisible() and button.isEnabled()
     assert w.actions["accept_all"].isEnabled()
+
+
+class _Screen:
+    def __init__(self, w, h):
+        from PySide2.QtCore import QRect
+        self.rect = QRect(0, 0, w, h)
+
+    def availableGeometry(self):
+        return self.rect
+
+
+def test_small_screen_keeps_the_status_bar_on_screen(qtbot, full_models_dir, tmp_path, monkeypatch):
+    from zhiraf.ui import main_window as mw
+    monkeypatch.setattr(mw.QGuiApplication, "primaryScreen", staticmethod(lambda: _Screen(800, 570)))
+    w = opened(qtbot, full_models_dir, tmp_path)
+    assert w.minimumSize().height() <= 570 - mw.TITLE_BAR and w.minimumSize().width() <= 800
+    assert w.windowState() & mw.Qt.WindowMaximized
+    w.setWindowState(mw.Qt.WindowNoState)
+    w.resize(800, 570 - mw.TITLE_BAR)
+    qtbot.wait(50)
+    assert w.height() <= 570 - mw.TITLE_BAR
+    button = w.status.accept_all_button
+    bottom = button.mapTo(w, button.rect().bottomLeft()).y()
+    assert button.isVisible() and bottom < w.height()
+
+
+def test_big_screen_gets_the_default_size(qtbot, full_models_dir, monkeypatch):
+    from zhiraf.ui import main_window as mw
+    monkeypatch.setattr(mw.QGuiApplication, "primaryScreen", staticmethod(lambda: _Screen(1920, 1040)))
+    w = mw.MainWindow(full_models_dir, factories="fakes:make_factories")
+    qtbot.addWidget(w)
+    assert (w.width(), w.height()) == mw.WINDOW_SIZE
+    assert not w.windowState() & mw.Qt.WindowMaximized
+
+
+def test_after_the_check_the_first_mark_in_the_text_is_current(qtbot, full_models_dir, tmp_path):
+    w = opened(qtbot, full_models_dir, tmp_path)
+    first = min(w.session.open_marks(), key=lambda m: (m.paragraph, m.start))
+    assert w.session.current is first and first.paragraph == FORM
