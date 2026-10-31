@@ -8,7 +8,6 @@ sentence and is released, then the next, and the last one combines everything an
 Every finding: {"start", "end", "level", "rule", "fix", "message"} in chars of the original sentence.
 level "error" — sure, shown as an error with its fix; "check" — the reader should look at the place.
 """
-import gc
 import os
 from array import array
 import time
@@ -17,6 +16,7 @@ from . import grammar_rules, rules, sage, spelling
 from .stages import STAGE_COST, STAGES, model_folders  # noqa: F401  (re-exported)
 from .guards import BIBLIOGRAPHY, prepare, protected, quoted_spans
 from .morph import morph
+from .ortutil import release_memory
 from .tagger import EditTagger
 from .text import inflect, words_of
 
@@ -102,6 +102,25 @@ SPELL_THRESHOLDS = {
 }
 LEVEL_RANK = {"error": 2, "check": 1}
 SOURCE_RANK = {"SAGE": 3, "RULE": 2, "MODEL": 1}
+
+
+def mark_memory(label):
+    """Debug hook: with ZHIRAF_MEMLOG=<file> appends 'label current_MB peak_MB_since_previous_mark' (Linux only) and
+    resets the peak. Nothing happens without the variable."""
+    path = os.environ.get("ZHIRAF_MEMLOG")
+    if not path:
+        return
+    try:
+        values = {}
+        for line in open("/proc/self/status"):
+            if line.startswith(("VmRSS", "VmHWM")):
+                values[line.split(":")[0]] = int(line.split()[1]) // 1024
+        with open(path, "a") as f:
+            f.write("%s %d %d\n" % (label, values["VmRSS"], values["VmHWM"]))
+        with open("/proc/self/clear_refs", "w") as f:
+            f.write("5")
+    except OSError:
+        pass
 
 
 def visible_level(level, strict):
@@ -400,7 +419,9 @@ class Checker:
         prediction fails or should_stop ends the pass (then None)."""
         parts = []
         for make in makers[:-1]:
+            mark_memory(stage + ":before-load")
             model = make()
+            mark_memory(stage + ":loaded")
             try:
                 found = [None] * first
                 for i in range(first, len(prepared)):
@@ -411,7 +432,8 @@ class Checker:
                         on_step(stage)
             finally:
                 model = None  # release this model before the next one is loaded (or before leaving)
-                gc.collect()
+                release_memory()
+                mark_memory(stage + ":pass-done")
             parts.append(found)
         return parts
 
@@ -435,7 +457,9 @@ class Checker:
             return None
         if len(makers) > 1 and should_stop is not None and should_stop():
             return None  # stopped right after the last silent step: do not load the last model for nothing
+        mark_memory(stage + ":before-last-load")
         model = makers[-1]()
+        mark_memory(stage + ":last-loaded")
         if stage == "sage":
             # the earlier stages' findings of the sentence let SAGE confirm (promote) their "check" commas / endings;
             # a stream resumed at this stage has none of them, then nothing is promoted
@@ -501,8 +525,10 @@ class Checker:
                     if level is not None:
                         found.append(dict(f, level=level, start=f["start"] + len(marker), end=f["end"] + len(marker)))
                 yield stage, i, found
+            mark_memory(stage + ":last-pass-done")
             check = None  # release the model before the next one is loaded
-            gc.collect()
+            release_memory()
+            mark_memory(stage + ":released")
             self._stage(stage, started)
 
     def check_document(self, sentences, context=None, stages=STAGES):

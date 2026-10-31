@@ -10,6 +10,7 @@ import os
 import numpy as np
 from tokenizers import Tokenizer
 
+from .ortutil import session_options
 from .text import words_of
 
 MAX_TOKENS = 192
@@ -76,9 +77,7 @@ class EditTagger:
         self.tokenizer = load_tokenizer(os.path.join(model_dir, "tokenizer.json"))
         self.tokenizer.enable_truncation(MAX_TOKENS)
         self.tokenizer.no_padding()
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = threads
-        options.inter_op_num_threads = 1
+        options = session_options(ort, threads)
         name = "model.onnx" if os.path.exists(os.path.join(model_dir, "model.onnx")) else "model-int8.onnx"
         self.session = ort.InferenceSession(os.path.join(model_dir, name), options, providers=["CPUExecutionProvider"])
 

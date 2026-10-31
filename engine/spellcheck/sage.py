@@ -15,6 +15,7 @@ from tokenizers import Tokenizer
 
 from .guards import TOKEN, allowed, quoted_spans
 from .morph import morph
+from .ortutil import session_options
 
 DECODER_START_ID = 0
 EOS_ID = 2
@@ -32,9 +33,7 @@ def postprocess(src, out):
 
 class Sage:
     def __init__(self, model_dir, threads=2):
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = threads
-        options.inter_op_num_threads = 1
+        options = session_options(ort, threads)
         providers = ["CPUExecutionProvider"]
         self.encoder = ort.InferenceSession(os.path.join(model_dir, "encoder_model.onnx"), options, providers=providers)
         self.decoder = ort.InferenceSession(os.path.join(model_dir, "decoder_model_merged.onnx"), options,
