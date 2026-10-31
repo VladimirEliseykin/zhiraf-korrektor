@@ -26,4 +26,5 @@ then the real `Жираф.Корректор.exe "…\Образец 2.docx"`, k
 Expected: `check exit=0` in `driver7.txt`; in `gui7.txt` the lock, `check finished … done`, the help mark visible, the
 corrected copy saved and the original unchanged, a PDF with Arial, `.doc` opened, `link created True`,
 `forbidden … loaded … []`, `error log (none)`. The clipboard text length after the window process ended is not 0.
-Document texts never reach the logs (counts and states only).
+Document texts never reach the logs: only counts, states, dialog kinds, return codes and the program's own safe error
+detail (exception class and file:line:function). No tracebacks, exception messages, dialog texts or child stderr.

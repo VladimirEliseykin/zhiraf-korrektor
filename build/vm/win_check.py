@@ -5,7 +5,8 @@ Two modes, both run on the VM with the Python of the shipped folder:
       under a Cyrillic path with a space, starts the check under that copy's pythonw.exe, then the real exe.
   check <root> <results> <work>                    (the copy's pythonw.exe, no console, like the shipped program)
       drives the window and writes gui7.txt and win-*.png to the results folder. Never prints.
-Document texts are never written: only counts, states, sizes and yes/no answers.
+Document texts are never written: only counts, states, sizes, yes/no answers, dialog kinds, return codes and the
+safe error detail of the program itself (exception class and file:line:function, never a message or source line).
 """
 import hashlib
 import json
@@ -13,8 +14,8 @@ import shutil
 import os
 import subprocess
 import sys
+import re
 import time
-import traceback
 
 OUT = WORK = LOG = ROOT = app = None
 FORBIDDEN_FILE = "forbidden.json"
@@ -31,12 +32,34 @@ def digest(path):
         return hashlib.sha256(f.read()).hexdigest()[:16]
 
 
+def error_detail(exc):
+    """Class and file:line:function of the last frames; never str(exc), never source lines (same rule as the program)."""
+    from zhiraf.worker import safe_error_detail
+    return safe_error_detail(exc)
+
+
+def say_dialog(kind, text):
+    """A dialog the program tried to show: only its kind. The text may quote the document."""
+    say("DIALOG", kind)
+
+
+def stream_class(data):
+    """The exception class named on the last line of a child's stderr, or '-'; the message is dropped."""
+    lines = [l for l in data.decode("utf-8", "replace").strip().splitlines() if l.strip()]
+    found = re.match(r"^([A-Za-z_][\w.]*)(?::|$)", lines[-1].strip()) if lines else None
+    return found.group(1) if found else "-"
+
+
+def say_child(label, returncode, stderr):
+    say(label, "rc", returncode, "stderr bytes", len(stderr), "last line class", stream_class(stderr))
+
+
 def step(name, func):
     say("--- %s" % name)
     try:
         func()
-    except Exception:
-        say("FAILED", traceback.format_exc())
+    except Exception as exc:
+        say("FAILED", error_detail(exc))
 
 
 # Qt and the window are imported in run() only: the spawned check child re-imports this file and must stay light
@@ -62,13 +85,13 @@ def lock():
     done = subprocess.run([os.path.join(ROOT, "python", "python.exe"), "-m", "zhiraf.ui"], env=env,
                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
     say("second launch rc", done.returncode, "secs %.1f" % (time.time() - started),
-        "stderr", done.stderr.decode("utf-8", "replace").strip()[:200])
+        "already-open message shown", zapp.ALREADY_RUNNING in done.stderr.decode("utf-8", "replace"))
     first.unlock()
 
 
 def window():
     w = MainWindow(models_dir(), log_detail=zapp.log_error_detail)
-    w._say = lambda kind, text, buttons=None: say("DIALOG", kind, text) or 0
+    w._say = lambda kind, text, buttons=None: say_dialog(kind, text) or 0
     w._ask_save_before_close = lambda *a, **k: "discard"
     w.resize(1100, 700)
     w.show()
@@ -164,8 +187,8 @@ def shortcut_step():
             target = target[0] if isinstance(target, tuple) else target
             say("link target is the launcher", os.path.normcase(str(target)) ==
                 os.path.normcase(shortcut.launcher_path()), "target", target)
-        except Exception:
-            say("link target unreadable", traceback.format_exc()[-300:])
+        except Exception as exc:
+            say("link target unreadable", error_detail(exc))
     with open(os.path.join(storage.data_dir(), "настройки.json"), encoding="utf-8") as f:
         say("settings file shortcut_offered", json.load(f).get("shortcut_offered"))
     asked.clear()
@@ -194,8 +217,8 @@ def forbidden_step():
     done = subprocess.run([os.path.join(ROOT, "python", "python.exe"), "-c", code], stdin=subprocess.DEVNULL,
                           stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, timeout=180)
-    say("forbidden after importing the program in a fresh interpreter rc", done.returncode,
-        done.stdout.decode("utf-8", "replace").strip(), done.stderr.decode("utf-8", "replace").strip()[-300:])
+    say_child("forbidden after importing the program in a fresh interpreter", done.returncode, done.stderr)
+    say("forbidden modules loaded there", done.stdout.decode("utf-8", "replace").strip()[:300])
 
 
 def close_window():
@@ -311,7 +334,7 @@ def driver():
                            "from PySide2.QtWidgets import QApplication; a=QApplication([]); t=a.clipboard().text(); "
                            "print(len(t))"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
     say_("clipboard text length after exit", done.stdout.decode().strip(), "rc", done.returncode,
-         done.stderr.decode("utf-8", "replace").strip()[-200:])
+         "stderr bytes", len(done.stderr), "last line class", stream_class(done.stderr))
 
     say_("[exe] the real launcher with a document of a Cyrillic path with a space")
     exe = os.path.join(root, "Жираф.Корректор.exe")

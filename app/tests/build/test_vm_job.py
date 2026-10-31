@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import py_compile
 
 from build import prune
@@ -34,3 +35,40 @@ def test_job_folder_is_complete(tmp_path):
 def test_run_cmd_uses_only_ascii_paths():
     text = open(os.path.join(os.path.dirname(make_job.__file__), "run.cmd"), "rb").read()
     text.decode("ascii")
+
+
+SECRET = "СекретноеСлово"
+
+
+def _check_module(tmp_path):
+    from build.vm import win_check
+    win_check.LOG = open(str(tmp_path / "gui7.txt"), "w", encoding="utf-8")
+    return win_check
+
+
+def _read(win_check, tmp_path):
+    win_check.LOG.close()
+    return (tmp_path / "gui7.txt").read_text(encoding="utf-8")
+
+
+def test_win_check_log_never_holds_document_words(tmp_path):
+    win_check = _check_module(tmp_path)
+
+    def broken():
+        raise ValueError("абзац: " + SECRET)
+
+    win_check.step("broken step", broken)
+    win_check.say_dialog("warning", "Файл " + SECRET + " нельзя открыть")
+    win_check.say_child("stderr probe", 1, ("Traceback (most recent call last):\n  File x\n"
+                                            "ValueError: " + SECRET + "\n").encode("utf-8"))
+    log = _read(win_check, tmp_path)
+    assert SECRET not in log
+    assert "FAILED ValueError" in log and "test_vm_job.py" in log   # class and file:line:function only
+    assert "DIALOG warning" in log
+    assert "stderr probe rc 1" in log and "ValueError" in log
+
+
+def test_win_check_source_does_not_dump_tracebacks_or_streams():
+    text = open(os.path.join(os.path.dirname(make_job.__file__), "win_check.py"), encoding="utf-8").read()
+    assert "format_exc" not in text
+    assert not re.search(r"stderr\.decode\([^)]*\)\.strip", text)
