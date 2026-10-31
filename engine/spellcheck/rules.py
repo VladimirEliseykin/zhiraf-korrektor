@@ -136,11 +136,15 @@ def edits1(w):
         {a + c + b[1:] for a, b in splits if b for c in ALPHABET} | {a + c + b for a, b in splits for c in ALPHABET}
 
 
+BODY, HEADING, TABLE, LIST = "body", "heading", "table", "list"
+
+
 class DocContext:
     """What the rest of the document tells about a sentence: recurring unknown words are terms, and
     the lemmas the author writes in lower case show which capitals are inconsistent."""
 
-    def __init__(self, sentences=(), lexicon=None):
+    def __init__(self, sentences=(), lexicon=None, kinds=None):
+        self.kinds = kinds  # parallel to sentences; only the case checks of one sentence look at its kind (check)
         unknown = collections.Counter()
         self.lower = collections.Counter()    # lemma -> times written in lower case
         self.capital = collections.Counter()  # lemma -> times capitalised mid-sentence
@@ -207,7 +211,7 @@ def sentence_start(text, pos):
     return bool(CODE.search(before.split(" ")[-1]))  # a list item after its number or code
 
 
-def check(text, lexicon, ctx=None):
+def check(text, lexicon, ctx=None, kind=None):
     ctx = ctx or DocContext()
     if BIBLIOGRAPHY.search(text):
         return []  # GOST 7.1 entries: abbreviations, names and their own capitalisation
@@ -323,7 +327,8 @@ def check(text, lexicon, ctx=None):
         out.append(finding(m, 0, "check", "TYPO", fix, "Возможна опечатка: «%s»?" % fix))
 
     # --- capitalisation: a capital mid-sentence on a word the author elsewhere writes in lower case ---
-    for m in CYR_WORD.finditer(text):
+    # headings, table cells and list items legitimately capitalise (titles, names of columns): no case checks there
+    for m in (CYR_WORD.finditer(text) if kind in (None, BODY) else ()):
         w = m.group(0)
         if not (w[0].isupper() and w[1:].replace("-", "").islower() and len(w) >= 3):
             continue

@@ -58,3 +58,16 @@ def test_multiple_initials_do_not_split():
 
 def test_abbreviation_with_nds_split():
     assert parts("В т.ч. НДС уплачен. Далее.") == ["В т.ч. НДС уплачен.", "Далее."]
+
+
+def test_sentence_kinds_follow_the_paragraph_role():
+    from zhiraf.documents.model import Paragraph, Span
+    from zhiraf.segment import plan_sentences, sentence_kinds
+    paragraphs = [Paragraph([Span("Один. Два.")]), Paragraph([Span("Раздел")], style="h1"),
+                  Paragraph([Span("ячейка")], table=(0, 1, 1)), Paragraph([Span("пункт")], style="list")]
+    sentences, where = plan_sentences([p.text for p in paragraphs])
+    assert sentence_kinds(paragraphs, where) == ["body", "body", "heading", "table", "list"]
+    titled = [Paragraph([Span("Название")], style="title"), Paragraph([Span("Подраздел")], style="h3"),
+              Paragraph([Span("в таблице")], style="h2", table=(0, 0, 0))]
+    _, where = plan_sentences([p.text for p in titled])
+    assert sentence_kinds(titled, where) == ["heading", "heading", "table"]

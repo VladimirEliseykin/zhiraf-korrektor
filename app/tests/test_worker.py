@@ -147,3 +147,9 @@ def test_importing_the_worker_does_not_load_the_engine_stack():
     code = "import sys, zhiraf.worker; sys.exit(1 if 'onnxruntime' in sys.modules else 0)"
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert subprocess.call([sys.executable, "-c", code], cwd=here) == 0
+
+
+def test_structure_reaches_the_engine_and_the_check_finishes(models_dir):
+    job = CheckJob(models_dir, SENTENCES, structure=["body", "heading", "table"], factories="fakes:make_factories")
+    run(job)
+    assert job.error is None and job.finished

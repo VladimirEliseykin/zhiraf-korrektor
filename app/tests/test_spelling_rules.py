@@ -114,3 +114,34 @@ def test_sage_keeps_every_other_case_edit_out(lexicon):
     assert case_found("Он сказал, «Любая деятельность нужна».", "Он сказал, «любая деятельность нужна».", lexicon) == []
     assert case_found("ранее внедренная программа.", "Ранее внедренная программа.", lexicon) == []
     assert case_found("Это важно, Иван пришёл.", "Это важно, иван пришёл.", lexicon) == []
+
+
+LOWER = ["Договор подписан сторонами.", "Пункты договора согласованы.", "Срок договора истёк."]
+CAPITAL = "Подписан Договор сегодня."
+
+
+def capital_mid(text, lexicon, ctx, **kw):
+    return [f for f in rules.check(text, lexicon, ctx, **kw) if f["rule"] == "CAPITAL_MID"]
+
+
+def test_capital_mid_is_flagged_in_body_text(lexicon):
+    ctx = rules.DocContext(LOWER, lexicon)
+    assert [(f["level"], f["fix"]) for f in capital_mid(CAPITAL, lexicon, ctx)] == [("strict", "договор")]
+    assert capital_mid(CAPITAL, lexicon, ctx, kind="body")
+    assert capital_mid(CAPITAL, lexicon, ctx, kind=None)
+
+
+def test_capital_mid_is_skipped_in_headings_tables_and_lists(lexicon):
+    ctx = rules.DocContext(LOWER, lexicon)
+    for kind in (rules.HEADING, rules.TABLE, rules.LIST):
+        assert capital_mid(CAPITAL, lexicon, ctx, kind=kind) == []
+
+
+def test_capitalised_headings_keep_counting_for_the_document(lexicon):
+    headings = ["Новый Договор аренды"] * 5
+    sentences = headings + LOWER
+    plain = rules.DocContext(sentences, lexicon)
+    typed = rules.DocContext(sentences, lexicon, [rules.HEADING] * 5 + [rules.BODY] * 3)
+    assert capital_mid(CAPITAL, lexicon, plain) == []
+    assert capital_mid(CAPITAL, lexicon, typed) == []
+    assert typed.lower == plain.lower and typed.capital == plain.capital and typed.terms == plain.terms
