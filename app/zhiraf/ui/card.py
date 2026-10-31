@@ -7,6 +7,7 @@ from PySide2.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButto
 from zhiraf.ui import theme
 
 MARGIN = 12
+_OWN_KEYS = (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down)
 HINTS = "← → — к другой пометке · Ctrl+Z — отменить"
 
 
@@ -32,6 +33,8 @@ class _ManualEdit(QLineEdit):
             self.escaped.emit()
             return
         super().keyPressEvent(event)
+        if event.key() in _OWN_KEYS:
+            event.accept()  # QLineEdit ignores these; the window must not see them
 
 
 class MarkCard(QFrame):
@@ -120,7 +123,7 @@ class MarkCard(QFrame):
         if mark.fix is None:
             return escape(mark.original)
         old = "<s>%s</s>" % escape(mark.original) if mark.original else "нет запятой" if mark.fix.strip() == "," \
-            else "пропущено"
+            else "нужно добавить"
         return "%s → <b>%s</b>" % (old, escape(mark.fix))
 
     def _open_manual(self):

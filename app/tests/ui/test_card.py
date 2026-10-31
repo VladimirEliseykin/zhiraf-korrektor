@@ -96,3 +96,35 @@ def test_buttons_emit_signals(qtbot):
         card.skip_button.click()
     with qtbot.waitSignal(card.dictionary_clicked):
         card.dictionary_button.click()
+
+
+def test_card_non_comma_insertion_text(qtbot):
+    card = MarkCard()
+    qtbot.addWidget(card)
+    card.show_mark(make_mark(rule="RULE_DASH", fix="—", start=3, end=3, text="так что"), "", "")
+    text = card.fix_label.text()
+    assert "нужно добавить" in text and "<b>—</b>" in text and "пропущено" not in text
+
+
+def test_manual_edit_keys_do_not_reach_the_parent(qtbot):
+    from PySide2.QtWidgets import QWidget
+
+    class Parent(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.keys = []
+
+        def keyPressEvent(self, event):
+            self.keys.append(event.key())
+
+    parent = Parent()
+    card = MarkCard(parent)
+    qtbot.addWidget(parent)
+    parent.show()
+    card.show_mark(make_mark(), "", "")
+    card.manual_button.click()
+    for key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+        QTest.keyClick(card.manual_edit, key)
+    card.manual_button.click()
+    QTest.keyClick(card.manual_edit, Qt.Key_Escape)
+    assert parent.keys == []
