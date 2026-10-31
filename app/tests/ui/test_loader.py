@@ -119,3 +119,31 @@ def test_parent_deleted_during_open(tmp_path, qapp, monkeypatch, capfd):
     QCoreApplication.processEvents()
     err = capfd.readouterr()
     assert "Destroyed while thread is still running" not in err.err + err.out
+
+
+def test_cancelled_open_removes_the_temp_copy(tmp_path, qapp, monkeypatch):
+    import zhiraf.ui.loader as loader
+    tmpdir = tmp_path / "converted"
+    tmpdir.mkdir()
+    (tmpdir / "x.docx").write_bytes(b"secret")
+
+    class FakeDoc:
+        source = {"tmpdir": str(tmpdir)}
+
+    def slow(path):
+        time.sleep(0.3)
+        return FakeDoc()
+
+    monkeypatch.setattr(loader, "open_document", slow)
+    task = OpenTask(str(tmp_path / "a.doc"))
+    fired = []
+    task.opened.connect(fired.append)
+    task.start()
+    task.cancel()
+    timer = QElapsedTimer()
+    timer.start()
+    while tmpdir.exists() and timer.elapsed() < 5000:
+        QCoreApplication.processEvents()
+        qapp.thread().msleep(5)
+    task.close()
+    assert fired == [] and not tmpdir.exists()

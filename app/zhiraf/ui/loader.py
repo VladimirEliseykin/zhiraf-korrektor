@@ -4,7 +4,7 @@ import os
 from PySide2.QtCore import QObject, QThread, Signal, Slot
 
 from ..documents.model import DocumentError
-from ..documents.opener import open_document
+from ..documents.opener import close_document, open_document
 
 
 class _Worker(QObject):
@@ -82,7 +82,9 @@ class OpenTask(QObject):
 
     @Slot(object)
     def _on_done(self, doc):
-        if not self._cancelled:
+        if self._cancelled:
+            close_document(doc)   # a converted copy of a secret .doc must not stay on disk
+        else:
             self.opened.emit(doc)
 
     @Slot(str)
