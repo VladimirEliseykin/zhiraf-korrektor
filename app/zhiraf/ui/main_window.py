@@ -6,7 +6,7 @@ how a check runs in CheckController, how a file is read or written in loader / e
 import os
 import time
 
-from PySide2.QtCore import QEvent, Qt
+from PySide2.QtCore import QEvent, Qt, QTimer
 from PySide2.QtGui import QGuiApplication, QIcon, QKeySequence
 from PySide2.QtWidgets import (QAction, QApplication, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
                                QMessageBox, QPlainTextEdit, QShortcut, QSizePolicy, QStackedWidget, QTextEdit, QToolBar,
@@ -26,6 +26,7 @@ from .start_screen import StartScreen
 from .status import NoticeBar, ProgressPanel, StatusPanel
 
 TITLE = "Жираф.Корректор"
+RETIRE_POLL_MS = 50
 CARD_WIDTH = 640
 CARD_SIDE_GAP = 32
 CONTEXT_CHARS = 20
@@ -52,6 +53,8 @@ class MainWindow(QMainWindow):
         self.session = None
         self.controller = None
         self.task = None
+        self._retiring = []           # cancelled opens whose thread still runs: kept alive, never waited for
+        self._typed = False           # the reader typed into a pasted text since the last save
         self._title = None
         self._modified = False        # accepted fixes changed since the last save
         self._notice_kind = None
@@ -231,7 +234,7 @@ class MainWindow(QMainWindow):
             self.open_path(path)
 
     def open_path(self, path):
-        if self.task is not None or not self.close_document():
+        if not self.close_document():
             return
         self.opening_page.setText("Открываю…")
         self.stack.setCurrentWidget(self.opening_page)
@@ -252,6 +255,25 @@ class MainWindow(QMainWindow):
         for key in ("open", "paste"):
             self.actions[key].setEnabled(True)
 
+    def _retire_task(self):
+        """Drop an open in progress without waiting: its late result is ignored, its thread ends on its own."""
+        task, self.task = self.task, None
+        if task is None:
+            return
+        task.cancel()
+        self._retiring.append(task)
+        for key in ("open", "paste"):
+            self.actions[key].setEnabled(True)
+        QTimer.singleShot(RETIRE_POLL_MS, self._reap)
+
+    def _reap(self):
+        for task in [t for t in self._retiring if not t.is_running()]:
+            self._retiring.remove(task)
+            task.close()
+            task.deleteLater()
+        if self._retiring:
+            QTimer.singleShot(RETIRE_POLL_MS, self._reap)
+
     def _on_opened(self, doc):
         self._finish_task()
         self._start_document(doc, os.path.basename(doc.path) if doc.path else "Вставленный текст")
@@ -262,8 +284,6 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, TITLE, message)
 
     def paste_from_clipboard(self):
-        if self.task is not None:
-            return
         doc = document_from_mime(QGuiApplication.clipboard().mimeData())
         if doc is None:
             QMessageBox.information(self, TITLE, "В буфере обмена нет текста для проверки.")
@@ -273,7 +293,7 @@ class MainWindow(QMainWindow):
 
     def _start_document(self, doc, title):
         self.doc = doc
-        self._modified = False
+        self._modified = self._typed = False
         self.session = ReviewSession([p.text for p in doc.paragraphs], self.dictionary)
         self.editor.load(doc, self.session)
         self.notice.clear()
@@ -315,10 +335,14 @@ class MainWindow(QMainWindow):
         return "save" if clicked is save else "discard" if clicked is discard else "cancel"
 
     def _unsaved(self):
-        return self.session is not None and self._modified and self.session.counts()["fixed"] > 0
+        if self.session is None or not self._modified:
+            return False
+        return self._typed or self.session.counts()["fixed"] > 0
 
     def close_document(self):
         """Close what is open (asking about unsaved fixes); False means the reader cancelled."""
+        if self.doc is not None:
+            self.editor.flush_edits()   # typing waiting for its timer counts as typed
         if self._unsaved():
             answer = self._ask_save_before_close()
             if answer == "cancel":
@@ -327,8 +351,7 @@ class MainWindow(QMainWindow):
                 self.save_copy()
                 if self._unsaved():
                     return False
-        if self.task is not None:
-            self._finish_task()
+        self._retire_task()
         if self.controller is not None:
             self.controller.close()
             self.controller.deleteLater()
@@ -346,6 +369,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.close_document():
+            for task in self._retiring:
+                task.close()      # process exit must not destroy a running thread
+            self._retiring = []
             event.accept()
         else:
             event.ignore()
@@ -541,7 +567,7 @@ class MainWindow(QMainWindow):
             self._refresh()
 
     def _paragraph_edited(self, index):
-        self._modified = True
+        self._modified = self._typed = True
         if self.controller is not None:
             self.controller.recheck([index])
         if self.session is not None:
@@ -556,7 +582,7 @@ class MainWindow(QMainWindow):
         return text
 
     def _saved(self, report):
-        self._modified = False
+        self._modified = self._typed = False
         self._notify(self._stats_notice(report), kind="saved")
         self._remember(self.doc)
 

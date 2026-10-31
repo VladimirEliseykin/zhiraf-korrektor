@@ -462,3 +462,130 @@ def test_recent_write_failure_is_silent(qtbot, full_models_dir, tmp_path, monkey
     monkeypatch.setattr(storage.Recent, "touch", broken)
     w = opened(qtbot, full_models_dir, tmp_path)
     assert w.close_document() is True
+
+
+# --- guarantees added in fix round 1 ---
+
+def spy_repaints(w):
+    seen = []
+    original = w.editor.repaint_paragraphs
+
+    def spy(indexes):
+        indexes = set(indexes)
+        seen.append(indexes)
+        return original(indexes)
+    w.editor.repaint_paragraphs = spy
+    return seen
+
+
+def repainted(seen):
+    return set().union(*seen) if seen else set()
+
+
+def test_skip_and_undo_of_skip_repaint_their_paragraph(qtbot, full_models_dir, tmp_path):
+    w = opened(qtbot, full_models_dir, tmp_path)
+    mark = w.session.current
+    seen = spy_repaints(w)
+    QTest.mouseClick(w.card.skip_button, Qt.LeftButton)
+    assert mark.status == SKIPPED and mark.paragraph in repainted(seen)
+    del seen[:]
+    QTest.keyClick(w.editor, Qt.Key_Z, Qt.ControlModifier)
+    assert mark.status == OPEN and mark.paragraph in repainted(seen)
+
+
+def test_dictionary_repaints_every_paragraph_with_the_word(qtbot, full_models_dir, tmp_path):
+    w = window(qtbot, full_models_dir)
+    w.open_path(make_docx(tmp_path / "t.docx", P(R("Слово ИСПДн тут.")), P(R("Раз два.")), P(R("И ещё ИСПДн здесь."))))
+    wait_state(qtbot, w, "done")
+    inject_typos(w, "ИСПДн", [0, 2])
+    w.session.select(w.session.marks[0].id)
+    w._refresh()
+    seen = spy_repaints(w)
+    QTest.mouseClick(w.card.dictionary_button, Qt.LeftButton)
+    assert {0, 2} <= repainted(seen) and 1 not in repainted(seen)
+
+
+def test_typing_is_saved_without_leaving_edit_mode(qtbot, full_models_dir, tmp_path, dialogs):
+    w = window(qtbot, full_models_dir)
+    set_clipboard(text="Простой текст.")
+    w.paste_from_clipboard()
+    wait_state(qtbot, w, "done")
+    w.editor._enter_edit_mode()
+    w.editor.moveCursor(w.editor.textCursor().Start)
+    QTest.keyClicks(w.editor, "New ")
+    assert not w.editor.isReadOnly()
+    w.save_as(str(tmp_path / "typed.txt"))
+    assert (tmp_path / "typed.txt").read_bytes().decode("utf-8-sig").startswith("New Простой")
+
+
+def test_accept_all_button_is_always_visible(qtbot, full_models_dir, tmp_path):
+    w = window(qtbot, full_models_dir)
+    w.open_path(make_docx(tmp_path / "empty.docx", P(R("  "))))
+    qtbot.waitUntil(lambda: w.doc is not None, timeout=10000)
+    assert w.status.accept_all_button.isVisible() and not w.status.accept_all_button.isEnabled()
+    w.close_document()
+    w.open_path(make_doc(tmp_path))
+    qtbot.waitUntil(lambda: w.doc is not None, timeout=10000)
+    assert w.status.accept_all_button.isVisible()    # right after the switch, before any mark
+
+
+def slow_open(monkeypatch, seconds=1.0):
+    def slow(p):
+        time.sleep(seconds)
+        return open_document(p)
+    monkeypatch.setattr(loader, "open_document", slow)
+
+
+def test_close_during_open_does_not_wait_and_drops_the_late_result(qtbot, full_models_dir, tmp_path, monkeypatch):
+    slow_open(monkeypatch)
+    w = window(qtbot, full_models_dir)
+    w.open_path(make_doc(tmp_path))
+    qtbot.wait(50)
+    start = time.time()
+    assert w.close_document() is True
+    assert time.time() - start < 0.2
+    assert len(w._retiring) == 1 and w.task is None
+    qtbot.wait(1300)
+    assert w.doc is None and w.windowTitle() == "Жираф.Корректор"
+    assert w.stack.currentWidget() is w.start_screen
+    qtbot.waitUntil(lambda: not w._retiring, timeout=5000)
+
+
+def test_opening_a_second_file_meanwhile_works(qtbot, full_models_dir, tmp_path, monkeypatch):
+    slow_open(monkeypatch, 0.8)
+    w = window(qtbot, full_models_dir)
+    w.open_path(make_doc(tmp_path, "first.docx"))
+    qtbot.wait(50)
+    start = time.time()
+    w.open_path(make_doc(tmp_path, "second.docx"))
+    assert time.time() - start < 0.2
+    qtbot.waitUntil(lambda: w.doc is not None, timeout=10000)
+    qtbot.wait(1000)
+    assert w.doc.path.endswith("second.docx") and w.windowTitle().endswith("second.docx")
+    qtbot.waitUntil(lambda: not w._retiring, timeout=5000)
+
+
+def test_closing_the_window_waits_for_a_retired_open(qtbot, full_models_dir, tmp_path, monkeypatch):
+    slow_open(monkeypatch, 0.6)
+    w = window(qtbot, full_models_dir)
+    w.open_path(make_doc(tmp_path))
+    qtbot.wait(50)
+    w.close_document()
+    task = w._retiring[0]
+    assert task.is_running()
+    w.close()
+    assert not task.is_running() and w._retiring == []
+
+
+def test_typed_text_counts_as_unsaved(qtbot, full_models_dir, monkeypatch):
+    w = window(qtbot, full_models_dir)
+    set_clipboard(text="Простой текст.")
+    w.paste_from_clipboard()
+    wait_state(qtbot, w, "done")
+    w.editor._enter_edit_mode()
+    w.editor.moveCursor(w.editor.textCursor().Start)
+    QTest.keyClicks(w.editor, "My ")
+    asked = []
+    monkeypatch.setattr(w, "_ask_save_before_close", lambda: asked.append(1) or "cancel")
+    assert w.session.counts()["fixed"] == 0
+    assert w.close_document() is False and asked == [1] and w.doc is not None
