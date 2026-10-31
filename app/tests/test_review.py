@@ -1,3 +1,5 @@
+import pytest
+
 from zhiraf.review import ACCEPTED, DICTIONARY, MANUAL, OPEN, SKIPPED, ReviewSession
 from zhiraf.storage import Dictionary
 
@@ -146,6 +148,23 @@ def test_undo_of_add_to_dictionary_removes_the_word(tmp_path):
     s.add_to_dictionary()
     assert s.undo() == []
     assert "испдн" not in d and [m.status for m in s.marks] == [OPEN, OPEN]
+
+
+def test_undo_keeps_its_group_when_the_dictionary_write_fails(tmp_path, monkeypatch):
+    d = Dictionary(str(tmp_path / "d.txt"))
+    s = ReviewSession(["Слово ИСПДн тут"], d)
+    s.add_findings(0, 0, [f(6, 11, None, level="check", rule="RULE_TYPO")])
+    s.add_to_dictionary()
+
+    def broken(word):
+        raise OSError("read-only")
+    monkeypatch.setattr(d, "remove", broken)
+    with pytest.raises(OSError):
+        s.undo()
+    assert s.marks[0].status == DICTIONARY
+    monkeypatch.undo()
+    s.undo()
+    assert "испдн" not in d and s.marks[0].status == OPEN
 
 
 def test_findings_of_an_old_paragraph_version_are_dropped():

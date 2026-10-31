@@ -237,9 +237,10 @@ class ReviewSession:
     def undo(self):
         if not self._undo:
             return []
-        group, word = self._undo.pop()
+        group, word = self._undo[-1]
         if word is not None and self.dictionary is not None:
-            self.dictionary.remove(word)
+            self.dictionary.remove(word)   # may raise OSError: the group must stay on the stack then
+        self._undo.pop()
         edits = []
         for mark, status, applied in reversed(group):
             if mark.status in APPLIED:
