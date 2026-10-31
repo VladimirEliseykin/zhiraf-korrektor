@@ -68,9 +68,9 @@ def log_error(exc):
 
 def _install_excepthook():
     def hook(exc_type, exc, tb):
-        if exc is not None:
-            log_error(exc)
         try:
+            if exc is not None:
+                log_error(exc)
             _tell("critical", SOMETHING_WRONG)
         except Exception:
             pass

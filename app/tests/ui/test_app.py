@@ -96,3 +96,13 @@ def test_close_is_bounded_when_a_retiring_open_hangs(qtbot, full_models_dir, tmp
     assert w.hard_exit is True
     release.set()   # let the thread end so that the test process can exit cleanly
     assert all(t.wait(5000) for t in w._retiring)
+
+
+def test_excepthook_never_raises(monkeypatch):
+    monkeypatch.setattr(app, "log_error", lambda exc: 1 / 0)
+    monkeypatch.setattr(app, "_tell", lambda *a: 1 / 0)
+    app._install_excepthook()
+    try:
+        sys.excepthook(ValueError, ValueError("x"), None)   # must not raise
+    finally:
+        sys.excepthook = sys.__excepthook__
