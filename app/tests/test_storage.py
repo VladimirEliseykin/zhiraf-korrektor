@@ -221,3 +221,18 @@ def test_recent_normalises_malformed_entries(tmp_path):
     assert items[2]["opened_at"] == 1700000000.0
     assert items[2]["stats"] == {"fixed": 1, "skipped": 2, "handled": 3, "total": 4}
     assert items[3]["opened_at"] is None and items[3]["stats"] == {}
+
+
+def test_recent_touch_cleans_stats(tmp_path):
+    r = storage.Recent(storage.Settings(), str(tmp_path / "r.json"))
+    r.touch(str(tmp_path / "a.docx"), {"fixed": "x", "handled": None, "total": True, "skipped": 2})
+    assert r.items()[0]["stats"] == {"skipped": 2}
+    assert storage.Recent(storage.Settings(), str(tmp_path / "r.json")).items()[0]["stats"] == {"skipped": 2}
+
+
+def test_recent_load_survives_huge_and_bool_time(tmp_path):
+    p = tmp_path / "r.json"
+    p.write_text('[{"path": "/a", "opened_at": 1%s}, {"path": "/b", "opened_at": true},'
+                 ' {"path": "/c", "opened_at": -5}]' % ("0" * 400), encoding="utf-8")
+    items = storage.Recent(storage.Settings(), str(p)).items()
+    assert [i["opened_at"] for i in items] == [None, None, None]

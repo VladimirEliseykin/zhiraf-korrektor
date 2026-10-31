@@ -177,8 +177,14 @@ class Settings:
 def _clean_recent(item):
     """Normalise one stored entry: finite float time or None, stats with non-negative int counters only."""
     opened = item.get("opened_at")
-    if isinstance(opened, bool) or not isinstance(opened, (int, float)) or not math.isfinite(opened) \
-            or not 0 <= opened < 4e9:
+    try:
+        if isinstance(opened, bool) or not isinstance(opened, (int, float)):
+            raise TypeError
+        opened = float(opened)
+        if not math.isfinite(opened) or not 0 <= opened < 4e9:
+            raise ValueError
+        time.localtime(opened)
+    except (TypeError, ValueError, OverflowError, OSError):
         opened = None
     raw = item.get("stats")
     stats = {}
@@ -211,7 +217,9 @@ class Recent:
         old = [i for i in self._items if os.path.normcase(os.path.abspath(i["path"])) == key]
         self._items = [i for i in self._items if i not in old]
         kept = old[0].get("stats", {}) if old else {}
-        self._items.insert(0, {"path": os.path.abspath(path), "opened_at": time.time(), "stats": stats or kept})
+        entry = _clean_recent({"path": os.path.abspath(path), "opened_at": time.time(),
+                               "stats": _clean_recent({"path": "", "stats": stats})["stats"] or kept})
+        self._items.insert(0, entry)
         del self._items[MAX_RECENT:]
         self._save()
 
