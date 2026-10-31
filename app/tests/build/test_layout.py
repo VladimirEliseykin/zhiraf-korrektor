@@ -153,3 +153,35 @@ def test_readme_utf8_bom(world):
     lines = raw.decode("utf-8-sig").splitlines()
     assert 3 <= len([l for l in lines if l.strip()]) <= 5
     assert b"\r\n" in raw
+    text = raw.decode("utf-8-sig")
+    for needle in ("%APPDATA%", "журнал.txt", "Жираф.Корректор.exe"):
+        assert needle in text
+
+
+def test_model_copy_fallback_is_counted_and_reported(world, monkeypatch, capsys):
+    files, repo, models, dist = world
+
+    def no_link(src, dst, *a, **k):
+        raise OSError("cross-device")
+    monkeypatch.setattr(os, "link", no_link)
+    lay_out(dist, files, repo, models)
+    assert os.path.isfile(os.path.join(dist, "models", "sage", "model.onnx"))
+    assert os.path.isfile(os.path.join(dist, "models", "vocab.tsv"))
+    assert "скопировано 2 файлов" in capsys.readouterr().out
+    n = layout._put_models(models, os.path.join(dist, "models2"), True)
+    assert n[0] == 2
+
+
+def test_no_fallback_line_when_links_work(world, capsys):
+    files, repo, models, dist = world
+    lay_out(dist, files, repo, models)
+    assert "скопировано" not in capsys.readouterr().out
+
+
+def test_dist_dot(world, monkeypatch, tmp_path):
+    files, repo, models, _ = world
+    cwd = tmp_path / "empty"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    lay_out(".", files, repo, models)
+    assert os.path.isfile(cwd / "python" / "python.exe")

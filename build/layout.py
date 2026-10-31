@@ -15,23 +15,24 @@ _UCRT_DIR = "Library/bin/"
 _SKIP_DIRS = ("__pycache__", "tests")
 
 README = (
-    "Жираф.Корректор проверяет русский текст без интернета.\r\n"
-    "Чтобы начать, откройте файл «Жираф.Корректор.exe» в этой папке.\r\n"
+    "Жираф.Корректор проверяет русский текст без интернета. Чтобы начать, откройте «Жираф.Корректор.exe».\r\n"
     "Ваш текст никуда не отправляется: программа не выходит в сеть.\r\n"
-    "Журнал работы записывается в папку «Жираф.Корректор» внутри вашей папки «Документы».\r\n"
+    "Журнал ошибок (файл «журнал.txt») — в папке «Жираф.Корректор», её можно открыть, "
+    "введя %APPDATA% в строке проводника.\r\n"
+    "В нём нет текста документов.\r\n"
     "Папку можно переносить целиком, например на флешку.\r\n"
 )
 
 
 def _safe_join(base, name):
-    target = os.path.normpath(os.path.join(base, name))
+    target = os.path.abspath(os.path.join(base, name))
     if target != base and not target.startswith(base + os.sep):
         raise ValueError("unsafe archive member: %r" % name)
     return target
 
 
 def _extract_zip(path, dest, skip=None):
-    base = os.path.normpath(dest)
+    base = os.path.abspath(dest)
     with zipfile.ZipFile(path) as z:
         for info in z.infolist():
             if skip and skip(info.filename):
@@ -76,6 +77,8 @@ def _put_vc_dlls(shiboken_wheel, py_dir):
 
 
 def _put_models(models, dest, link):
+    """Place the models; return how many files had to be copied because linking failed."""
+    fallback = fallback_bytes = 0
     for root, dirs, names in os.walk(models):
         rel = os.path.relpath(root, models)
         out = dest if rel == "." else os.path.join(dest, rel)
@@ -87,8 +90,10 @@ def _put_models(models, dest, link):
                     os.link(src, dst)
                     continue
                 except OSError:
-                    pass  # different filesystem: fall back to a copy
+                    fallback += 1  # different filesystem: fall back to a copy
+                    fallback_bytes += os.path.getsize(src)
             shutil.copy2(src, dst)
+    return fallback, fallback_bytes
 
 
 def lay_out(dist, files, repo, models, link_models=True):
@@ -121,7 +126,9 @@ def lay_out(dist, files, repo, models, link_models=True):
     os.makedirs(art)
     shutil.copy2(os.path.join(repo, "engine", "art", "start.jpg"), os.path.join(art, "start.jpg"))
 
-    _put_models(models, os.path.join(dist, "models"), link_models)
+    copied, size = _put_models(models, os.path.join(dist, "models"), link_models)
+    if copied:
+        print("модели: жёсткие ссылки не удались, скопировано %d файлов (%.1f ГБ)" % (copied, size / 1e9))
 
     with open(os.path.join(dist, "ЧИТАЙ-МЕНЯ.txt"), "wb") as f:
         f.write(README.encode("utf-8-sig"))
