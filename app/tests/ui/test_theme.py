@@ -7,6 +7,8 @@ def test_palette_is_the_spec_palette():
     assert theme.COLORS["error"] == "#b9524a" and theme.COLORS["check"] == "#d9a521"
     assert theme.COLORS["fixed"] == "#3f9a4e" and theme.COLORS["skipped"] == "#8792a2"
     assert theme.COLORS["sky"] == "#56708f" and theme.COLORS["paper"] == "#f6f3ec"
+    assert theme.COLORS["ink"] == "#26303b" and theme.COLORS["moon"] == "#fbf7e9"
+    assert len(theme.COLORS) == 8
 
 
 def test_icons_render_for_every_status(qapp):

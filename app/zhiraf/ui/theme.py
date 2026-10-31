@@ -8,7 +8,7 @@ from PySide2.QtSvg import QSvgRenderer
 import zhiraf
 
 COLORS = {
-    "sky": "#56708f", "paper": "#f6f3ec", "ink": "#2b2f36", "moon": "#e9e4d8",
+    "sky": "#56708f", "paper": "#f6f3ec", "ink": "#26303b", "moon": "#fbf7e9",
     "error": "#b9524a", "check": "#d9a521", "fixed": "#3f9a4e", "skipped": "#8792a2",
 }
 LEVEL_LABEL = {"error": "Ошибка", "check": "Проверьте"}
@@ -68,7 +68,7 @@ QMainWindow, QDialog { background: %(paper)s; color: %(ink)s; }
 QWidget { color: %(ink)s; }
 QToolTip { background: %(ink)s; color: %(paper)s; border: 0; padding: 4px 6px; }
 QPushButton { background: %(sky)s; color: %(paper)s; border: 0; border-radius: 4px; padding: 6px 14px; }
-QPushButton:disabled { background: %(moon)s; color: %(skipped)s; }
-QProgressBar { background: %(moon)s; border: 0; border-radius: 3px; height: 6px; }
+QPushButton:disabled { background: %(moon)s; color: %(skipped)s; border: 1px solid %(skipped)s; }
+QProgressBar { background: %(moon)s; border: 1px solid %(skipped)s; border-radius: 3px; height: 6px; }
 QProgressBar::chunk { background: %(sky)s; border-radius: 3px; }
 """ % c
