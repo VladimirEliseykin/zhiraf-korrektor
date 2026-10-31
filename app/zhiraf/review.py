@@ -69,6 +69,7 @@ class ReviewSession:
         self.dictionary = dictionary
         self.marks = []
         self.current = None
+        self.show_checks = True   # False: «check» marks stay in the list but navigation never lands on them
         self._next_id = 1
         self._by_par = {}   # paragraph -> its marks sorted by _key (index over self.marks)
         self._par_keys = {}  # paragraph -> the _key of each of those marks
@@ -138,13 +139,23 @@ class ReviewSession:
             self._insert(mark)
             added.append(mark)
         if self.current is None:
-            self.current = next((m for m in self.marks if m.status == OPEN), None)
+            self.current = next(iter(self.open_marks()), None)
         return added
 
     # --- navigation ---
 
+    def _reachable(self, mark):
+        return mark.status == OPEN and (self.show_checks or mark.level != "check")
+
     def open_marks(self):
-        return [m for m in self.marks if m.status == OPEN]
+        """Open marks that navigation may land on (hidden «check» marks are left out)."""
+        return [m for m in self.marks if self._reachable(m)]
+
+    def set_show_checks(self, value):
+        self.show_checks = bool(value)
+        if self.current is not None and not self._reachable(self.current):
+            self.current = None
+            self.go_next()
 
     def go_next(self):
         opens = self.open_marks()
@@ -170,7 +181,7 @@ class ReviewSession:
 
     def select(self, mark_id):
         mark = next((m for m in self.marks if m.id == mark_id), None)
-        if mark is not None and mark.status == OPEN:
+        if mark is not None and self._reachable(mark):
             self.current = mark
         return mark
 

@@ -212,3 +212,20 @@ def test_pop_removed_reports_marks_evicted_by_a_stronger_finding():
     assert s.marks == strong and s.current is strong[0]
     s.add_findings(0, 0, [f(0, 6, "Также", level="check", rule="MODEL_FORM")])  # weaker: nothing removed
     assert s.pop_removed() == []
+
+
+def test_hidden_checks_are_skipped_by_navigation_and_select():
+    s = ReviewSession(["aaa bbb ccc"])
+    s.add_findings(0, 0, [f(0, 3, "x"), f(4, 7, None, level="check", rule="RULE_TYPO"), f(8, 11, "y")])
+    check = next(m for m in s.marks if m.level == "check")
+    s.select(check.id)
+    s.set_show_checks(False)
+    assert s.current is not check and s.current.level == "error"
+    assert [m.level for m in s.open_marks()] == ["error", "error"]
+    assert s.select(check.id) is check and s.current is not check
+    for _ in range(3):
+        assert s.go_next().level == "error"
+        assert s.go_prev().level == "error"
+    assert s.counts()["checks"] == 1
+    s.set_show_checks(True)
+    assert s.select(check.id) is check and s.current is check

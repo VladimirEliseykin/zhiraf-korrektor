@@ -41,6 +41,9 @@ def dialogs(monkeypatch):
     monkeypatch.setattr(QFileDialog, "getOpenFileName",
                         staticmethod(lambda *a, **k: d.calls["open"].append(a) or (d.open_path, "")))
     monkeypatch.setattr(MainWindow, "_ask_save_before_close", lambda self: "discard")
+    from zhiraf.ui.dialogs import DictionaryDialog, HotkeysDialog, SettingsDialog
+    for cls in (DictionaryDialog, HotkeysDialog, SettingsDialog):   # an unpatched modal would hang the run
+        monkeypatch.setattr(cls, "exec_", lambda self: 0)
     return d
 
 
@@ -101,8 +104,6 @@ def test_start_screen_is_shown_first(qtbot, full_models_dir):
     assert w.doc is None and w.controller is None
     assert set(w.actions) == {"open", "paste", "stop", "save_copy", "save_as", "copy_formatted", "undo",
                               "accept_all", "dictionary", "settings", "help"}
-    for key in ("dictionary", "settings", "help"):
-        w.actions[key].trigger()   # stubs until Task 13: nothing happens, nothing crashes
 
 
 def test_open_path_runs_check_and_shows_marks(qtbot, full_models_dir, tmp_path):
@@ -589,3 +590,99 @@ def test_typed_text_counts_as_unsaved(qtbot, full_models_dir, monkeypatch):
     monkeypatch.setattr(w, "_ask_save_before_close", lambda: asked.append(1) or "cancel")
     assert w.session.counts()["fixed"] == 0
     assert w.close_document() is False and asked == [1] and w.doc is not None
+
+
+# --- Task 13: help, dictionary, settings ---
+
+def patch_exec(monkeypatch, cls, action=None):
+    seen = []
+
+    def fake(self):
+        seen.append(self)
+        if action:
+            action(self)
+        return 0
+    monkeypatch.setattr(cls, "exec_", fake)
+    return seen
+
+
+def test_f1_opens_the_hotkeys_help_in_review_and_on_start(qtbot, full_models_dir, tmp_path, monkeypatch):
+    from zhiraf.ui.dialogs import HotkeysDialog
+    seen = patch_exec(monkeypatch, HotkeysDialog)
+    w = window(qtbot, full_models_dir)
+    w.activateWindow()
+    qtbot.waitUntil(w.isActiveWindow)
+    w.start_screen.paste_button.setFocus()
+    QTest.keyClick(w.start_screen.paste_button, Qt.Key_F1)
+    assert len(seen) == 1
+    w.open_path(make_doc(tmp_path))
+    wait_state(qtbot, w, "done")
+    QTest.keyClick(w.editor, Qt.Key_F1)
+    assert len(seen) == 2
+
+
+def test_menu_actions_open_dictionary_and_settings(qtbot, full_models_dir, monkeypatch):
+    from zhiraf.ui.dialogs import DictionaryDialog, SettingsDialog
+    d = patch_exec(monkeypatch, DictionaryDialog)
+    s = patch_exec(monkeypatch, SettingsDialog)
+    w = window(qtbot, full_models_dir)
+    w.actions["dictionary"].trigger()
+    w.actions["settings"].trigger()
+    assert len(d) == 1 and len(s) == 1
+
+
+def uncheck_show_checks(dlg):
+    dlg.boxes["show_checks"].setChecked(False)
+    dlg.accept()
+
+
+def check_marks_painted(w):
+    return any(m.level == "check" for m in w.session.marks
+               if any(r.mark and r.mark[0] == m.id for r in __import__("zhiraf.ui.runs", fromlist=["x"]).paragraph_runs(
+                   w.doc.paragraphs[m.paragraph], w.session, m.paragraph, w.session.show_checks)))
+
+
+def test_unchecking_show_checks_hides_marks_navigation_and_card(qtbot, full_models_dir, tmp_path, monkeypatch):
+    from zhiraf.ui.dialogs import SettingsDialog
+    w = opened(qtbot, full_models_dir, tmp_path)
+    inject_typos(w, "порядок", [COMMA])
+    check = mark_in(w, COMMA) if mark_in(w, COMMA).level == "check" else next(m for m in w.session.marks
+                                                                              if m.level == "check")
+    w.session.select(check.id)
+    w._refresh()
+    assert check_marks_painted(w) and w.card.isVisible()
+    patch_exec(monkeypatch, SettingsDialog, uncheck_show_checks)
+    w.actions["settings"].trigger()
+    assert not check_marks_painted(w)
+    assert w.session.current is None or w.session.current.level != "check"
+    assert not w.card.isVisible() or w.session.current.level != "check"
+    w._go_next()
+    w._go_prev()
+    assert w.session.current is None or w.session.current.level != "check"
+    assert w.session.select(check.id) is check and w.session.current is not check
+    assert w.session.counts()["checks"] == 1       # the counter still counts the hidden mark
+
+
+def test_checking_show_checks_again_brings_found_marks_back(qtbot, full_models_dir, tmp_path, monkeypatch):
+    from zhiraf.ui.dialogs import SettingsDialog
+    w = opened(qtbot, full_models_dir, tmp_path)
+    inject_typos(w, "порядок", [COMMA])
+    patch_exec(monkeypatch, SettingsDialog, uncheck_show_checks)
+    w.actions["settings"].trigger()
+    assert not check_marks_painted(w)
+
+    def check_again(dlg):
+        dlg.boxes["show_checks"].setChecked(True)
+        dlg.accept()
+    patch_exec(monkeypatch, SettingsDialog, check_again)
+    w.actions["settings"].trigger()
+    assert check_marks_painted(w)
+
+
+def test_recent_is_not_touched_when_remembering_is_off(qtbot, full_models_dir, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(storage.Recent, "touch", lambda self, path, stats=None: calls.append(path))
+    w = opened(qtbot, full_models_dir, tmp_path)
+    w.settings.set("remember_recent", False)
+    w.close_document()
+    assert calls == []

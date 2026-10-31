@@ -20,6 +20,7 @@ from . import export, theme
 from .card import MarkCard, card_position
 from .clipboard import document_from_mime
 from .controller import CheckController
+from .dialogs import DictionaryDialog, HotkeysDialog, SettingsDialog
 from .editor import ReviewEditor
 from .loader import OpenTask
 from .start_screen import StartScreen
@@ -295,6 +296,8 @@ class MainWindow(QMainWindow):
         self.doc = doc
         self._modified = self._typed = False
         self.session = ReviewSession([p.text for p in doc.paragraphs], self.dictionary)
+        self.session.set_show_checks(self.settings["show_checks"])
+        self.editor.set_show_checks(self.settings["show_checks"])
         self.editor.load(doc, self.session)
         self.notice.clear()
         self._notice_kind = None
@@ -377,7 +380,7 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def _remember(self, doc):
-        if not doc.path or self.session is None:
+        if not doc.path or self.session is None or not self.settings["remember_recent"]:
             return
         counts = self.session.counts()
         stats = {"fixed": counts["fixed"], "skipped": counts["skipped"],
@@ -648,10 +651,21 @@ class MainWindow(QMainWindow):
     # --- windows of Task 13 ---
 
     def _show_dictionary(self):
-        pass
+        DictionaryDialog(self.dictionary, self).exec_()
 
     def _show_settings(self):
-        pass
+        SettingsDialog(self.settings, self).exec_()
+        self._apply_show_checks()
 
     def _show_help(self):
-        pass
+        HotkeysDialog(self).exec_()
+
+    def _apply_show_checks(self):
+        """Redraw the found marks after the «проверьте» setting changed (only when it really changed)."""
+        value = bool(self.settings["show_checks"])
+        if self.session is None or self.session.show_checks == value:
+            return
+        self.session.set_show_checks(value)
+        self.editor.set_show_checks(value)
+        self.editor.repaint_paragraphs(range(len(self.session.originals)))
+        self._refresh()
