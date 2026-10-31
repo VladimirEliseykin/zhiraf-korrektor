@@ -100,3 +100,21 @@ def test_utf16_helpers():
     assert to_utf16(text, 8) == 9
     assert to_utf16(text, text.index(" ") + 1) == len(text.encode("utf-16-le")) // 2 - 1
     assert utf16_len(" ") == 1
+
+
+class _NoScan(list):
+    def __iter__(self):
+        raise AssertionError("session.marks was scanned")
+
+
+def test_runs_of_one_paragraph_do_not_scan_all_marks():
+    par = Paragraph([Span("Работа с информации")])
+    session = make(par.text, finding(9, 19, "информацией"))
+    session.accept()
+    session.marks = _NoScan(session.marks)   # only the per-paragraph index may be used
+    assert "".join(r.text for r in paragraph_runs(par, session, 0)) == "Работа с информацией"
+    assert "".join(s.text for s in final_spans(par, session, 0)) == "Работа с информацией"
+
+
+def test_marks_of_unknown_paragraph_is_empty():
+    assert list(ReviewSession(["a"]).marks_of(5)) == []

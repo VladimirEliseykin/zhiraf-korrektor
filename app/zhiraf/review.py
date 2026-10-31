@@ -268,6 +268,10 @@ class ReviewSession:
 
     # --- text and positions ---
 
+    def marks_of(self, paragraph):
+        """The marks of one paragraph (sorted); reading them does not scan every mark of the document."""
+        return self._by_par.get(paragraph, ())
+
     def to_current(self, paragraph, pos, exclude=None):
         shift = 0
         for m in self._by_par.get(paragraph, ()):

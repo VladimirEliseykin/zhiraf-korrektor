@@ -51,7 +51,7 @@ def _char_formats(paragraph, session, index):
     formats = _formats(paragraph)
     original = session.originals[index]
     formats += [formats[-1] if formats else PLAIN] * max(0, len(original) - len(formats))
-    applied = sorted((m for m in session.marks if m.paragraph == index and m.status in APPLIED),
+    applied = sorted((m for m in session.marks_of(index) if m.status in APPLIED),
                      key=lambda m: (m.start, m.end))
     text, out, pos = [], [], 0
     for m in applied:
@@ -85,8 +85,8 @@ def _merge(text, keys):
 def paragraph_runs(paragraph, session, index, show_checks=True):
     text, formats = _char_formats(paragraph, session, index)
     marks = [None] * len(text)
-    for m in session.marks:
-        if m.paragraph != index or m.status not in SHOWN or (m.level == "check" and not show_checks):
+    for m in session.marks_of(index):
+        if m.status not in SHOWN or (m.level == "check" and not show_checks):
             continue
         start, end = display_range(session, m)
         for i in range(max(start, 0), min(end, len(text))):
