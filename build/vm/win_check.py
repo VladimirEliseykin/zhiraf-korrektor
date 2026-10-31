@@ -10,6 +10,7 @@ safe error detail of the program itself (exception class and file:line:function,
 """
 import hashlib
 import json
+import ntpath
 import shutil
 import os
 import subprocess
@@ -34,7 +35,10 @@ def digest(path):
 
 def error_detail(exc):
     """Class and file:line:function of the last frames; never str(exc), never source lines (same rule as the program)."""
-    from zhiraf.worker import safe_error_detail
+    try:
+        from zhiraf.worker import safe_error_detail
+    except ImportError:   # the driver runs under the CD's python, which cannot import the program
+        return type(exc).__name__
     return safe_error_detail(exc)
 
 
@@ -52,6 +56,27 @@ def stream_class(data):
 
 def say_child(label, returncode, stderr):
     say(label, "rc", returncode, "stderr bytes", len(stderr), "last line class", stream_class(stderr))
+
+
+RUNTIME_DLLS = ("ucrtbase.dll", "api-ms-win-crt-runtime-l1-1-0.dll")
+
+
+def runtime_dll_report(paths, root):
+    """For each C runtime DLL: the loaded paths and whether all of them are the copies in <root>\\python."""
+    own = ntpath.normcase(ntpath.join(root, "python")) + "\\"
+    report = []
+    for name in RUNTIME_DLLS:
+        found = sorted({p for p in paths if ntpath.basename(p).lower() == name})
+        inside = bool(found) and all(ntpath.normcase(p).startswith(own) for p in found)
+        report.append((name, found, inside))
+    return report
+
+
+def runtime_dlls_step():
+    import psutil
+    paths = [m.path for m in psutil.Process().memory_maps()]
+    for name, found, inside in runtime_dll_report(paths, ROOT):
+        say("loaded", name, found or "(not loaded)", "from the program's python folder", inside)
 
 
 def step(name, func):
@@ -245,7 +270,7 @@ def run():
     say("pyside", pyside_version, "platform", app.platformName())
     app.setStyleSheet(theme.stylesheet())
     say("data_dir", storage.data_dir(), "models", models_dir(), "missing", zhiraf.missing_models(models_dir()))
-    for name, func in (("lock", lock), ("window", window), ("check docx", check_docx),
+    for name, func in (("runtime dlls", runtime_dlls_step), ("lock", lock), ("window", window), ("check docx", check_docx),
                        ("save and export", save_and_export), ("open .doc", open_doc), ("shortcut", shortcut_step),
                        ("forbidden modules", forbidden_step), ("close", close_window)):
         step(name, func)
@@ -253,6 +278,44 @@ def run():
     say("error log", open(log_path, encoding="utf-8").read()[-500:] if os.path.isfile(log_path) else "(none)")
     say("=== end")
     LOG.close()
+
+
+QT_PROBE = ("from PySide2.QtCore import QCoreApplication; from PySide2.QtWidgets import QApplication; "
+            "a = QApplication([]); print(a.platformName(), QCoreApplication.libraryPaths())")
+
+
+def qt_conf_variants(root, desktop, say_):
+    """Which part of the folder path makes Qt lose its plugins when python\\qt.conf is absent?
+
+    The folder is renamed (no second 7 GB copy fits on the VM disk), qt.conf is removed, Qt is started, and
+    everything is put back. Paths and Qt's own answer are logged: they hold no document text.
+    """
+    conf = os.path.join(root, "python", "qt.conf")
+    with open(conf, "rb") as f:
+        saved = f.read()
+    variants = (("ASCII, no space", "ZhirafTest"), ("ASCII with a space", "Zhiraf Test"),
+                ("Cyrillic, no space", "ЖирафТест"))
+    current = root
+    for label, name in variants:
+        target = os.path.join(desktop, name)
+        try:
+            os.rename(current, target)
+            current = target
+            os.remove(os.path.join(current, "python", "qt.conf"))
+            done = subprocess.run([os.path.join(current, "python", "python.exe"), "-c", QT_PROBE],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            say_("[no qt.conf]", label, target, "rc", done.returncode, "stdout",
+                 done.stdout.decode("utf-8", "replace").strip()[:300],
+                 "stderr", " | ".join(l for l in done.stderr.decode("utf-8", "replace").splitlines()
+                                      if "platform plugin" in l)[:300])
+            with open(os.path.join(current, "python", "qt.conf"), "wb") as f:
+                f.write(saved)
+        except Exception as exc:
+            say_("variant", label, "FAILED", error_detail(exc))
+    if current != root:
+        os.rename(current, root)
+    with open(conf, "wb") as f:
+        f.write(saved)
 
 
 def driver():
@@ -283,8 +346,8 @@ def driver():
 
     def show(label):
         found = processes()
-        say_(label, "pythonw", sum(1 for p in found if p.get("Name") == "pythonw.exe"),
-             "python", sum(1 for p in found if p.get("Name") == "python.exe"))
+        say_(label, "pythonw", sum(1 for p in found if (p.get("Name") or "").lower() == "pythonw.exe"),
+             "python", sum(1 for p in found if (p.get("Name") or "").lower() == "python.exe"))
         for p in found:
             say_("   ", p.get("Name"), "pid", p.get("ProcessId"), "parent", p.get("ParentProcessId"),
                  p.get("CommandLine", "")[-150:])
@@ -349,6 +412,7 @@ def driver():
     path = os.path.join(data, "журнал.txt")
     say_("error log size", os.path.getsize(path) if os.path.isfile(path) else "(none)")
     say_("link on desktop", os.path.isfile(link))
+    qt_conf_variants(root, desktop, say_)
     say_("=== end")
     log.close()
 

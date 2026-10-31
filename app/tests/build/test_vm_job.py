@@ -72,3 +72,15 @@ def test_win_check_source_does_not_dump_tracebacks_or_streams():
     text = open(os.path.join(os.path.dirname(make_job.__file__), "win_check.py"), encoding="utf-8").read()
     assert "format_exc" not in text
     assert not re.search(r"stderr\.decode\([^)]*\)\.strip", text)
+
+
+def test_runtime_dll_report_tells_own_copies_from_system_ones():
+    from build.vm import win_check
+    root = "C:\\Users\\t\\Desktop\\Жираф Корректор тест"
+    own = root + "\\python\\ucrtbase.dll"
+    system = "C:\\Windows\\System32\\api-ms-win-crt-runtime-l1-1-0.dll"
+    report = win_check.runtime_dll_report([own, system, root + "\\python\\python37.dll"], root)
+    by_name = {name: (found, inside) for name, found, inside in report}
+    assert by_name["ucrtbase.dll"] == ([own], True)
+    assert by_name["api-ms-win-crt-runtime-l1-1-0.dll"] == ([system], False)
+    assert dict((n, f) for n, f, _ in win_check.runtime_dll_report([], root))["ucrtbase.dll"] == []
