@@ -287,35 +287,33 @@ QT_PROBE = ("from PySide2.QtCore import QCoreApplication; from PySide2.QtWidgets
 def qt_conf_variants(root, desktop, say_):
     """Which part of the folder path makes Qt lose its plugins when python\\qt.conf is absent?
 
-    The folder is renamed (no second 7 GB copy fits on the VM disk), qt.conf is removed, Qt is started, and
-    everything is put back. Paths and Qt's own answer are logged: they hold no document text.
+    Only the python folder (217 MB; a second full copy does not fit on the VM disk) is copied to each path, without
+    qt.conf, and Qt is started from there. The shipped copy stays untouched. Paths and Qt's own answer are logged:
+    they hold no document text.
     """
-    conf = os.path.join(root, "python", "qt.conf")
-    with open(conf, "rb") as f:
-        saved = f.read()
+    def unlock(func, path, _):   # files copied from the CD are read-only
+        os.chmod(path, 0o700)
+        func(path)
+
     variants = (("ASCII, no space", "ZhirafTest"), ("ASCII with a space", "Zhiraf Test"),
                 ("Cyrillic, no space", "ЖирафТест"))
-    current = root
     for label, name in variants:
         target = os.path.join(desktop, name)
         try:
-            os.rename(current, target)
-            current = target
-            os.remove(os.path.join(current, "python", "qt.conf"))
-            done = subprocess.run([os.path.join(current, "python", "python.exe"), "-c", QT_PROBE],
+            shutil.copytree(os.path.join(root, "python"), os.path.join(target, "python"))
+            conf = os.path.join(target, "python", "qt.conf")
+            os.chmod(conf, 0o700)
+            os.remove(conf)
+            done = subprocess.run([os.path.join(target, "python", "python.exe"), "-c", QT_PROBE],
                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             say_("[no qt.conf]", label, target, "rc", done.returncode, "stdout",
                  done.stdout.decode("utf-8", "replace").strip()[:300],
                  "stderr", " | ".join(l for l in done.stderr.decode("utf-8", "replace").splitlines()
                                       if "platform plugin" in l)[:300])
-            with open(os.path.join(current, "python", "qt.conf"), "wb") as f:
-                f.write(saved)
         except Exception as exc:
             say_("variant", label, "FAILED", error_detail(exc))
-    if current != root:
-        os.rename(current, root)
-    with open(conf, "wb") as f:
-        f.write(saved)
+        finally:
+            shutil.rmtree(target, onerror=unlock, ignore_errors=True)
 
 
 def driver():
