@@ -1,0 +1,18 @@
+# name<TAB>url<TAB>sha256<TAB>kind  (pinned 2026-10-31)
+# sha256 of the file whose MD5 (60f77740b30030b22699dbd14883a4a3) matches python.org
+python-embed	https://www.python.org/ftp/python/3.7.9/python-3.7.9-embed-amd64.zip	18627a097adf47829a847053febac5532376075243e233bd9ec61d6ea09dee1f	python-embed
+wheel:numpy	https://files.pythonhosted.org/packages/97/9f/da37cc4a188a1d5d203d65ab28d6504e17594b5342e0c1dc5610ee6f4535/numpy-1.21.6-cp37-cp37m-win_amd64.whl	bcb238c9c96c00d3085b264e5c1a1207672577b93fa666c3b14a45240b14123a	wheel
+wheel:onnxruntime	https://files.pythonhosted.org/packages/b2/98/86add98289a620f2758f7eb8b9d5e6662233fb6fa2965dea3f0ee86f8f9f/onnxruntime-1.14.1-cp37-cp37m-win_amd64.whl	4d6f08ea40d63ccf90f203f4a2a498f4e590737dcaf16867075cc8e0a86c5554	wheel
+wheel:tokenizers	https://files.pythonhosted.org/packages/cb/ea/e9bf17a3f492d756b54c87ffcb99a606078c3224e276c8263c5eb69db423/tokenizers-0.19.1-cp37-none-win_amd64.whl	f3bbb7a0c5fcb692950b041ae11067ac54826204318922da754f908d95619fbc	wheel
+wheel:pymorphy3	https://files.pythonhosted.org/packages/96/9b/3bb2abf52d890aac2d86198aa5868323f88ac4f29a93443796411401fae5/pymorphy3-2.0.2-py3-none-any.whl	5c4534e09e424c765a69601b5cc3735080dfafed15105961b3c16616793891d0	wheel
+wheel:DAWG-Python	https://files.pythonhosted.org/packages/6a/84/ff1ce2071d4c650ec85745766c0047ccc3b5036f1d03559fd46bb38b5eeb/DAWG_Python-0.7.2-py2.py3-none-any.whl	4941d5df081b8d6fcb4597e073a9f60d5c1ccc9d17cd733e8744d7ecfec94ef3	wheel
+wheel:pymorphy3-dicts-ru	https://files.pythonhosted.org/packages/b0/67/469e9e52d046863f5959928794d3067d455a77f580bf4a662630a43eb426/pymorphy3_dicts_ru-2.4.417150.4580142-py2.py3-none-any.whl	718bac64c73c10c16073a199402657283d9b64c04188b694f6d3e9b0d85440f4	wheel
+wheel:lxml	https://files.pythonhosted.org/packages/8d/cd/85172c7528ff46c48513ec882614073ad0746a65e2df7bc7a0fb6b3bbabe/lxml-4.9.3-cp37-cp37m-win_amd64.whl	120fa9349a24c7043854c53cae8cec227e1f79195a7493e09e0c12e29f918e52	wheel
+wheel:olefile	https://files.pythonhosted.org/packages/17/d3/b64c356a907242d719fc668b71befd73324e47ab46c8ebbbede252c154b2/olefile-0.47-py2.py3-none-any.whl	543c7da2a7adadf21214938bb79c83ea12b473a4b6ee4ad4bf854e7715e13d1f	wheel
+wheel:comtypes	https://files.pythonhosted.org/packages/6e/15/b4a1ea2d5e31052f56283b21089b574f5f05bdc9f27f6afad6c5f47903c9/comtypes-1.2.1-py2.py3-none-any.whl	fe1f10126d623ffd8075a9c926e7c5b3b5e9249a2e8674f772d5d4e2c8f33d63	wheel
+wheel:psutil	https://files.pythonhosted.org/packages/93/52/3e39d26feae7df0aa0fd510b14012c3678b36ed068f7d78b8d8784d61f0e/psutil-5.9.8-cp37-abi3-win_amd64.whl	8db4c1b57507eef143a15a6884ca10f7c73876cdf5d51e713151c1236a0e68cf	wheel
+wheel:PySide2	https://files.pythonhosted.org/packages/ed/5e/d0d540385dcc5eeda877a4288a9a4970e0e7b2282e840c2b08ce5442542e/PySide2-5.15.2.1-5.15.2-cp35.cp36.cp37.cp38.cp39.cp310-none-win_amd64.whl	af6b263fe63ba6dea7eaebae80aa7b291491fe66f4f0057c0aafe780cc83da9d	wheel
+wheel:shiboken2	https://files.pythonhosted.org/packages/26/bd/a1b31f49eb35888eae318c27327732b1036f0d921e5c8ec2e7a4276e7445/shiboken2-5.15.2.1-5.15.2-cp35.cp36.cp37.cp38.cp39.cp310-none-win_amd64.whl	a0d0fdeb12b72c8af349b9642ccc67afd783dca449309f45e78cda50272fd6b7	wheel
+# sha256 of the file whose MD5 (72608f6cd3e5898229c3ea16deb1ac43) matches anaconda.org; no sha256 published for this .tar.bz2
+ucrt	https://conda.anaconda.org/conda-forge/win-64/ucrt-10.0.22621.0-h57928b3_0.tar.bz2	f29cdaf8712008f6b419b8b1a403923b00ab2504bfe0fb2ba8eb60e72d4f14c6	ucrt
+toolchain	https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz	55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335	toolchain
