@@ -17,6 +17,7 @@ from zhiraf.ui.main_window import MainWindow
 
 FIRST = "Работа с информации ведётся."
 SECOND = "Документ определяющий порядок утверждён."
+REAL_SAY = getattr(MainWindow, "_say", None)
 FORM, COMMA = 0, 1   # the paragraphs where the fake models find a wrong ending / a missing comma
 
 
@@ -33,10 +34,10 @@ class Dialogs:
 @pytest.fixture(autouse=True)
 def dialogs(monkeypatch):
     d = Dialogs()
-    for name in ("information", "warning", "critical"):
-        monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, _n=name, **k: d.calls[_n].append(a[2:]) or 0))
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: d.calls["question"].append(a[2:]) or d.answer))
+    def say(self, kind, text, buttons=None):
+        d.calls[kind].append((text,) if buttons is None else (text, buttons))
+        return d.answer if kind == "question" else 0
+    monkeypatch.setattr(MainWindow, "_say", say)
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: d.calls["save"].append(a) or (d.save_path, "")))
     monkeypatch.setattr(QFileDialog, "getOpenFileName",
@@ -701,3 +702,31 @@ def test_undo_of_a_check_with_hidden_checks_does_not_show_the_card(qtbot, full_m
     w._undo()
     assert check.status == OPEN and w.session.current is not check
     assert not (w.card.isVisible() and w.session.current is check)
+
+
+@pytest.mark.parametrize("width", [1100, 800])
+def test_every_toolbar_action_is_visible(qtbot, full_models_dir, width):
+    from PySide2.QtWidgets import QToolButton
+    w = window(qtbot, full_models_dir)
+    w.resize(width, 700)
+    w.stack.setCurrentWidget(w.review_page)
+    qtbot.wait(100)
+    for bar in (w.toolbar, w.toolbar_more):
+        for action in bar.actions():
+            widget = bar.widgetForAction(action)
+            assert widget is not None and widget.isVisible(), action.text()
+            assert widget.geometry().right() <= bar.width()
+        ext = [b for b in bar.findChildren(QToolButton) if b.objectName() == "qt_toolbar_ext_button"]
+        assert all(not b.isVisible() for b in ext)
+    assert w.progress.geometry().bottom() <= w.review_page.height()
+    assert w.toolbar.geometry().bottom() < w.toolbar_more.geometry().top() < w.progress.geometry().top()
+
+
+def test_message_boxes_show_plain_text(qtbot, full_models_dir, monkeypatch):
+    seen = []
+    monkeypatch.setattr(MainWindow, "_say", REAL_SAY)   # the real helper, only the modal loop is replaced
+    monkeypatch.setattr(QMessageBox, "exec_", lambda self: seen.append((self.text(), self.textFormat())) or 0)
+    w = MainWindow(full_models_dir, factories="fakes:make_factories")
+    qtbot.addWidget(w)
+    w._on_open_failed('<img src="\\\\server\\x"> &lt;')
+    assert seen == [('<img src="\\\\server\\x"> &lt;', Qt.PlainText)]

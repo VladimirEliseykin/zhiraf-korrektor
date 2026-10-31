@@ -86,6 +86,8 @@ class MainWindow(QMainWindow):
 
         self.toolbar = QToolBar()
         self.toolbar.setMovable(False)
+        self.toolbar_more = QToolBar()   # the second row: the whole set does not fit one row at the minimum width
+        self.toolbar_more.setMovable(False)
         self.progress = ProgressPanel()
         self.progress.setFixedWidth(280)
         self.notice = NoticeBar()
@@ -94,12 +96,11 @@ class MainWindow(QMainWindow):
         self.card.hide()
         self.status = StatusPanel()
 
-        top = QHBoxLayout()
-        top.addWidget(self.toolbar, 1)
-        top.addWidget(self.progress, 0, Qt.AlignTop)
         layout = QVBoxLayout(self.review_page)
         layout.setContentsMargins(8, 4, 8, 8)
-        layout.addLayout(top)
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.toolbar_more)
+        layout.addWidget(self.progress, 0, Qt.AlignRight)   # its own row: beside the toolbar it pushed actions out
         layout.addWidget(self.notice)
         layout.addWidget(self.editor, 1)
         layout.addWidget(self.status)
@@ -158,13 +159,14 @@ class MainWindow(QMainWindow):
         save.setPopupMode(QToolButton.InstantPopup)
         self.save_button = save
         bar.addWidget(save)
-        for key in ("copy_formatted", "undo"):
-            bar.addAction(a[key])
+        bar.addAction(a["undo"])
+        more = self.toolbar_more
+        more.addAction(a["copy_formatted"])
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        bar.addWidget(spacer)
+        more.addWidget(spacer)
         for key in ("dictionary", "settings", "help"):
-            bar.addAction(a[key])
+            more.addAction(a[key])
         self._enable_document_actions(False)
 
     def _build_shortcuts(self):
@@ -281,15 +283,23 @@ class MainWindow(QMainWindow):
         self._finish_task()
         self._start_document(doc, os.path.basename(doc.path) if doc.path else "Вставленный текст")
 
+    def _say(self, kind, text, buttons=None):
+        """A message box whose text is always plain: it may carry a document's words or paths."""
+        icon = {"information": QMessageBox.Information, "warning": QMessageBox.Warning,
+                "question": QMessageBox.Question}[kind]
+        box = QMessageBox(icon, TITLE, text, buttons if buttons is not None else QMessageBox.Ok, self)
+        box.setTextFormat(Qt.PlainText)
+        return box.exec_()
+
     def _on_open_failed(self, message):
         self._finish_task()
         self.show_start_page()
-        QMessageBox.warning(self, TITLE, message)
+        self._say("warning", message)
 
     def paste_from_clipboard(self):
         doc = document_from_mime(QGuiApplication.clipboard().mimeData())
         if doc is None:
-            QMessageBox.information(self, TITLE, "В буфере обмена нет текста для проверки.")
+            self._say("information", "В буфере обмена нет текста для проверки.")
             return
         if self.close_document():
             self._start_document(doc, "Вставленный текст")
@@ -600,10 +610,10 @@ class MainWindow(QMainWindow):
     def _save_failed(self, error, offer_save_as):
         if offer_save_as:
             question = "%s\n\nСохранить под другим именем?" % error
-            if QMessageBox.question(self, TITLE, question, QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            if self._say("question", question, QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
                 self.save_as()
         else:
-            QMessageBox.warning(self, TITLE, str(error))
+            self._say("warning", str(error))
 
     def save_copy(self):
         if self.doc is None:
@@ -640,7 +650,7 @@ class MainWindow(QMainWindow):
                 path += "." + ext
         if export.needs_overwrite_confirmation(path, self.doc):
             question = "Файл «%s» уже есть. Заменить его?" % os.path.basename(path)
-            if QMessageBox.question(self, TITLE, question, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            if self._say("question", question, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
                 return
         try:
             report = export.save_as(self.doc, self.session, path)
