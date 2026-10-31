@@ -258,9 +258,12 @@ class ReviewSession:
                 start = self.to_current(mark.paragraph, mark.start, exclude=mark)
                 edits.append(Edit(mark.paragraph, start, start + len(mark.applied), mark.original))
             mark.status, mark.applied = status, applied
-        reopened = [m for m, _, _ in group if m.status == OPEN]
+        reopened = [m for m, _, _ in group if self._reachable(m)]
         if reopened:
             self.current = min(reopened, key=_key)
+        elif self.current is None or not self._reachable(self.current):
+            self.current = None
+            self.go_next()
         return edits
 
     # --- text and positions ---

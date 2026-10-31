@@ -229,3 +229,15 @@ def test_hidden_checks_are_skipped_by_navigation_and_select():
     assert s.counts()["checks"] == 1
     s.set_show_checks(True)
     assert s.select(check.id) is check and s.current is check
+
+
+def test_undo_does_not_make_a_hidden_check_current():
+    s = ReviewSession(["aaa bbb ccc"])
+    s.add_findings(0, 0, [f(0, 3, "x"), f(4, 7, None, level="check", rule="RULE_TYPO"), f(8, 11, "y")])
+    check = next(m for m in s.marks if m.level == "check")
+    s.select(check.id)
+    s.skip()
+    s.set_show_checks(False)
+    s.undo()
+    assert check.status == "open" and s.current is not check
+    assert s.current is not None and s.current.level == "error"

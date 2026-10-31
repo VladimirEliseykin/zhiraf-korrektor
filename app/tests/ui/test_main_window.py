@@ -12,6 +12,7 @@ from zhiraf import storage
 from zhiraf.documents.opener import open_document
 from zhiraf.review import ACCEPTED, DICTIONARY, MANUAL, OPEN, SKIPPED
 from zhiraf.ui import loader
+from zhiraf.ui.runs import paragraph_runs
 from zhiraf.ui.main_window import MainWindow
 
 FIRST = "Работа с информации ведётся."
@@ -638,7 +639,7 @@ def uncheck_show_checks(dlg):
 
 def check_marks_painted(w):
     return any(m.level == "check" for m in w.session.marks
-               if any(r.mark and r.mark[0] == m.id for r in __import__("zhiraf.ui.runs", fromlist=["x"]).paragraph_runs(
+               if any(r.mark and r.mark[0] == m.id for r in paragraph_runs(
                    w.doc.paragraphs[m.paragraph], w.session, m.paragraph, w.session.show_checks)))
 
 
@@ -686,3 +687,17 @@ def test_recent_is_not_touched_when_remembering_is_off(qtbot, full_models_dir, t
     w.settings.set("remember_recent", False)
     w.close_document()
     assert calls == []
+
+
+def test_undo_of_a_check_with_hidden_checks_does_not_show_the_card(qtbot, full_models_dir, tmp_path, monkeypatch):
+    from zhiraf.ui.dialogs import SettingsDialog
+    w = opened(qtbot, full_models_dir, tmp_path)
+    inject_typos(w, "порядок", [COMMA])
+    check = next(m for m in w.session.marks if m.level == "check")
+    w.session.select(check.id)
+    w._skip()
+    patch_exec(monkeypatch, SettingsDialog, uncheck_show_checks)
+    w.actions["settings"].trigger()
+    w._undo()
+    assert check.status == OPEN and w.session.current is not check
+    assert not (w.card.isVisible() and w.session.current is check)
