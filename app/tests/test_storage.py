@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from zhiraf import storage
 
 
@@ -85,7 +87,7 @@ def test_clean_tmp_removes_leftovers():
 
 def test_folders_follow_profile_override(zhiraf_home):
     assert storage.data_dir() == str(zhiraf_home)
-    assert storage.tmp_dir() == os.path.join(str(zhiraf_home), "tmp")
+    assert storage.tmp_dir() == os.path.join(str(zhiraf_home), "tmp", str(os.getpid()))
 
 
 def test_dictionary_loads_cp1251_encoded_file(tmp_path):
@@ -138,3 +140,64 @@ def test_recent_with_invalid_entries_loads_valid_ones(tmp_path):
     # touch() should work after loading corrupted file
     r.touch(str(tmp_path / "c.docx"), {"fixed": 5})
     assert len(r.items()) == 3
+
+
+def blocked_dictionary(tmp_path):
+    path = tmp_path / "словарь.txt"
+    path.mkdir()                      # a folder where the file should be: every write fails
+    return storage.Dictionary(str(path))
+
+
+def test_dictionary_add_rolls_back_when_write_fails(tmp_path):
+    d = blocked_dictionary(tmp_path)
+    with pytest.raises(OSError):
+        d.add("Жирафик")
+    assert "Жирафик" not in d and len(d) == 0
+
+
+def test_dictionary_remove_rolls_back_when_write_fails(tmp_path):
+    path = tmp_path / "словарь.txt"
+    path.write_text("Жирафик\n", encoding="utf-8")
+    d = storage.Dictionary(str(path))
+    path.unlink()
+    path.mkdir()
+    with pytest.raises(OSError):
+        d.remove("Жирафик")
+    assert "Жирафик" in d
+
+
+def test_dictionary_import_rolls_back_when_write_fails(tmp_path):
+    src = tmp_path / "чужой.txt"
+    src.write_text("Жирафик\n", encoding="utf-8")
+    d = blocked_dictionary(tmp_path)
+    with pytest.raises(OSError):
+        d.import_from(str(src))
+    assert len(d) == 0
+
+
+def test_settings_set_rolls_back_when_write_fails(tmp_path):
+    bad = tmp_path / "настройки.json"
+    bad.mkdir()
+    s = storage.Settings(str(bad))
+    with pytest.raises(OSError):
+        s.set("strict_mode", True)
+    assert s["strict_mode"] is False
+
+
+def test_failed_write_leaves_no_tmp_file(tmp_path):
+    target = tmp_path / "папка.txt"
+    target.mkdir()                    # os.replace onto a folder fails after the .tmp is written
+    with pytest.raises(OSError):
+        storage._write_atomic(str(target), "текст")
+    assert not os.path.exists(str(target) + ".tmp")
+
+
+def test_tmp_dir_is_per_process_and_clean_keeps_a_live_neighbour(zhiraf_home):
+    mine = storage.tmp_dir()
+    assert os.path.basename(mine) == str(os.getpid())
+    neighbour = os.path.join(os.path.dirname(mine), str(os.getppid()))   # a live process
+    dead = os.path.join(os.path.dirname(mine), "999999999")
+    for p in (neighbour, dead):
+        os.makedirs(p, exist_ok=True)
+    storage.clean_tmp()
+    assert os.path.isdir(neighbour) and not os.path.exists(dead) and os.path.isdir(storage.tmp_dir())

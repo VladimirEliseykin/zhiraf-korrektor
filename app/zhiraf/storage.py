@@ -8,6 +8,8 @@ import shutil
 import sys
 import time
 
+import psutil
+
 APP_NAME = "Жираф.Корректор"
 DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True}
 MAX_RECENT = 20
@@ -32,22 +34,41 @@ def data_dir():
 
 
 def tmp_dir():
-    path = _base("tmp")
+    """This process's own temp folder: two running copies never share files."""
+    path = os.path.join(_base("tmp"), str(os.getpid()))
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def clean_tmp():
-    """Temp copies of documents must not outlive the program, also after a crash."""
-    shutil.rmtree(_base("tmp"), ignore_errors=True)
+    """Temp copies of documents must not outlive the program, also after a crash.
+
+    Removes the folders of dead processes and our own old one; a live neighbour keeps its files.
+    """
+    root = _base("tmp")
+    mine = str(os.getpid())
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    for name in names:
+        if name == mine or not name.isdigit() or not psutil.pid_exists(int(name)):
+            shutil.rmtree(os.path.join(root, name), ignore_errors=True)
     tmp_dir()
 
 
 def _write_atomic(path, text):
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _read_json(path, default):
@@ -99,22 +120,31 @@ class Dictionary:
         return sorted(self._words.values(), key=str.lower)
 
     def add(self, word):
+        before = dict(self._words)
         self._remember(word.strip())
-        self._save()
+        self._save_or_restore(before)
 
     def remove(self, word):
+        before = dict(self._words)
         self._words.pop(word.strip().lower(), None)
-        self._save()
+        self._save_or_restore(before)
 
     def export(self, path):
         _write_atomic(path, "\n".join(self.words()) + "\n")
 
     def import_from(self, path):
-        before = len(self._words)
+        saved = dict(self._words)
         for line in _read_text_lines(path):
             self._remember(line.strip())
-        self._save()
-        return len(self._words) - before
+        self._save_or_restore(saved)
+        return len(self._words) - len(saved)
+
+    def _save_or_restore(self, before):
+        try:
+            self._save()
+        except OSError:
+            self._words = before  # memory must match the file on disk
+            raise
 
     def _save(self):
         _write_atomic(self.path, "\n".join(self.words()) + "\n")
@@ -134,8 +164,13 @@ class Settings:
     def set(self, key, value):
         if key not in DEFAULT_SETTINGS:
             raise KeyError(key)
+        old = self._values[key]
         self._values[key] = value
-        _write_atomic(self.path, json.dumps(self._values, ensure_ascii=False, indent=1))
+        try:
+            _write_atomic(self.path, json.dumps(self._values, ensure_ascii=False, indent=1))
+        except OSError:
+            self._values[key] = old
+            raise
 
 
 class Recent:
