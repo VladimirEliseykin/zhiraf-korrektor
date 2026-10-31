@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
             return
         counts = self.session.counts()
         self.status.set_counts(counts)
-        self.actions["accept_all"].setEnabled(counts["errors"] > 0)
+        self.actions["accept_all"].setEnabled(counts["errors"] > 0 and self.editor.isReadOnly())
         if not self.editor.isReadOnly():
             self.card.hide()      # the reader is typing: no marks on the screen
             return
@@ -581,6 +581,9 @@ class MainWindow(QMainWindow):
 
     def _edit_mode_changed(self, editing):
         self._sync_shortcuts()
+        self.status.set_editing(editing)
+        self.actions["accept_all"].setEnabled(not editing and self.session is not None
+                                              and self.session.counts()["errors"] > 0)
         if editing:
             self.card.hide()
             self._anchor = None

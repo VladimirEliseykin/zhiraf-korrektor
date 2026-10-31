@@ -730,3 +730,17 @@ def test_message_boxes_show_plain_text(qtbot, full_models_dir, monkeypatch):
     qtbot.addWidget(w)
     w._on_open_failed('<img src="\\\\server\\x"> &lt;')
     assert seen == [('<img src="\\\\server\\x"> &lt;', Qt.PlainText)]
+
+
+def test_accept_all_is_disabled_but_visible_in_edit_mode(qtbot, full_models_dir, tmp_path):
+    w = opened(qtbot, full_models_dir, tmp_path)
+    button = w.status.accept_all_button
+    assert w.session.counts()["errors"] > 0 and button.isEnabled()
+    w.editor._enter_edit_mode()
+    assert button.isVisible() and not button.isEnabled()
+    assert not w.actions["accept_all"].isEnabled()
+    w._paragraph_edited(0)   # the counts are redrawn while typing: still disabled
+    assert not button.isEnabled()
+    QTest.keyClick(w.editor, Qt.Key_Escape)
+    assert w.editor.isReadOnly() and button.isVisible() and button.isEnabled()
+    assert w.actions["accept_all"].isEnabled()

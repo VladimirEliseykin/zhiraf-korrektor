@@ -115,6 +115,8 @@ class StatusPanel(QWidget):
         self.help_badge.setGeometry(8, 0, 18, 18)
         self.accept_all_button.clicked.connect(self.accept_all_clicked)
         layout.addWidget(self.accept_all_button)
+        self._editing = False
+        self._errors = 0
         self.set_counts({})
 
     def resizeEvent(self, event):
@@ -129,13 +131,18 @@ class StatusPanel(QWidget):
         button = self.accept_all_button
         self.help_badge.move(8, (button.height() - self.help_badge.height()) // 2)
 
+    def set_editing(self, editing):
+        """While the reader types, the button stays on screen but cannot be pressed."""
+        self._editing = editing
+        self.accept_all_button.setEnabled(self._errors > 0 and not editing)
+
     def set_counts(self, counts):
         for key, word in _COUNT_WORDS:
             self.labels[key].setText("%s: %d" % (word, counts.get(key, 0)))
-        errors = counts.get("errors", 0)
+        errors = self._errors = counts.get("errors", 0)
         badge = theme.COLORS["paper"] if errors > 0 else theme.COLORS["skipped"]
         self.help_badge.setPixmap(theme.icon("help", color=badge).pixmap(18, 18))
-        self.accept_all_button.setEnabled(errors > 0)
+        self.accept_all_button.setEnabled(errors > 0 and not self._editing)
         self.accept_all_button.setToolTip(_TOOLTIP % errors)
         self._place_badge()
 
