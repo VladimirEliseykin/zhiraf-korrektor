@@ -103,7 +103,6 @@ def test_recent_limit(qapp):
     screen = StartScreen()
     screen.set_recent([_item("/x/%d.docx" % i) for i in range(100)])
     assert len(screen.recent_rows) <= storage.MAX_RECENT
-    assert screen.recent_scroll is not None
 
 
 def test_drop_any_local_file(qapp, tmp_path):
@@ -130,3 +129,38 @@ def test_drop_ignores_non_files(qapp):
     text.setText("hello")
     _drop(screen, text)
     assert got == []
+
+
+def test_malformed_recent_does_not_crash(qapp, tmp_path):
+    import json
+    real = tmp_path / "a.docx"
+    real.write_text("x")
+    raw = [{"path": str(real), "opened_at": "bad", "stats": {"fixed": 1, "handled": None, "total": 3}}]
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    items = storage.Recent(storage.Settings(), str(p)).items()
+    screen = StartScreen()
+    screen.set_recent(items)
+    assert len(screen.recent_rows) == 1
+    assert "01.01.1970" not in _texts(screen)
+
+
+def test_small_window_not_pinned_by_picture(qapp):
+    from PySide2.QtWidgets import QApplication
+    screen = StartScreen()
+    screen.resize(600, 300)
+    screen.show()
+    QApplication.processEvents()
+    assert screen.width() <= 600
+    assert screen.pixmap_label.pixmap().height() <= screen.pixmap_label.height()
+
+
+def test_recent_scrolls_when_small(qapp):
+    from PySide2.QtWidgets import QApplication
+    screen = StartScreen()
+    screen.resize(900, 400)
+    screen.show()
+    screen.set_recent([_item("/x/%d.docx" % i) for i in range(100)])
+    QApplication.processEvents()
+    assert len(screen._list.findChildren(type(screen.recent_rows[0]))) <= storage.MAX_RECENT
+    assert screen.recent_scroll.verticalScrollBar().maximum() > 0

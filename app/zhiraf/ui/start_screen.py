@@ -4,7 +4,7 @@ import time
 
 from PySide2.QtCore import Qt, Signal
 from PySide2.QtGui import QPixmap
-from PySide2.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout,
+from PySide2.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
                                QWidget)
 
 from zhiraf import storage
@@ -53,7 +53,11 @@ class _RecentRow(QFrame):
         layout.addLayout(names, 1)
         right = QVBoxLayout()
         right.setSpacing(0)
-        stamp = time.strftime("%d.%m.%Y", time.localtime(item.get("opened_at", 0)))
+        opened = item.get("opened_at")
+        try:
+            stamp = time.strftime("%d.%m.%Y", time.localtime(opened)) if opened is not None else ""
+        except (OverflowError, OSError, ValueError, TypeError):
+            stamp = ""
         date = QLabel(stamp, self)
         date.setAlignment(Qt.AlignRight)
         right.addWidget(date)
@@ -76,12 +80,16 @@ class _Picture(QLabel):
         super().__init__(parent)
         self._source = QPixmap(path)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumWidth(120)
+        self.setMinimumSize(120, 120)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.setStyleSheet("background: %s;" % theme.COLORS["sky"])
-        self.setPixmap(self._source)
+        self._rescale()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._rescale()
+
+    def _rescale(self):
         if not self._source.isNull():
             scaled = self._source.scaled(self.width(), self.height(), Qt.KeepAspectRatio,
                                          Qt.SmoothTransformation)
@@ -124,7 +132,7 @@ class StartScreen(QWidget):
         sub.setStyleSheet("color: %s;" % theme.COLORS["skipped"])
         column.addWidget(sub)
 
-        buttons = QHBoxLayout()
+        buttons = QVBoxLayout()
         self.paste_button = QPushButton("Вставить текст  (Ctrl+V)", right)
         self.open_button = QPushButton("Открыть документ  (Ctrl+O · .docx, .doc, .odt)", right)
         self.paste_button.clicked.connect(self.paste_requested)

@@ -201,3 +201,23 @@ def test_tmp_dir_is_per_process_and_clean_keeps_a_live_neighbour(zhiraf_home):
         os.makedirs(p, exist_ok=True)
     storage.clean_tmp()
     assert os.path.isdir(neighbour) and not os.path.exists(dead) and os.path.isdir(storage.tmp_dir())
+
+
+def test_recent_normalises_malformed_entries(tmp_path):
+    import json
+    raw = [
+        {"path": "/a.docx", "opened_at": "yesterday", "stats": "oops"},
+        {"path": "/b.docx", "opened_at": 1e300, "stats": {"fixed": 2, "skipped": -1, "handled": None, "total": "5", "x": 1}},
+        {"path": "/c.docx", "opened_at": 1700000000, "stats": {"fixed": 1, "skipped": 2, "handled": 3, "total": 4}},
+        {"path": "/d.docx", "opened_at": float("nan"), "stats": [1]},
+        {"path": 5}, "junk",
+    ]
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    items = storage.Recent(storage.Settings(), str(p)).items()
+    assert [i["path"] for i in items] == ["/a.docx", "/b.docx", "/c.docx", "/d.docx"]
+    assert items[0]["opened_at"] is None and items[0]["stats"] == {}
+    assert items[1]["opened_at"] is None and items[1]["stats"] == {"fixed": 2}
+    assert items[2]["opened_at"] == 1700000000.0
+    assert items[2]["stats"] == {"fixed": 1, "skipped": 2, "handled": 3, "total": 4}
+    assert items[3]["opened_at"] is None and items[3]["stats"] == {}

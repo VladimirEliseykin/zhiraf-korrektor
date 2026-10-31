@@ -3,6 +3,7 @@
 Never document text: the dictionary holds single words, the recent list file paths and counters.
 """
 import json
+import math
 import os
 import shutil
 import sys
@@ -173,6 +174,22 @@ class Settings:
             raise
 
 
+def _clean_recent(item):
+    """Normalise one stored entry: finite float time or None, stats with non-negative int counters only."""
+    opened = item.get("opened_at")
+    if isinstance(opened, bool) or not isinstance(opened, (int, float)) or not math.isfinite(opened) \
+            or not 0 <= opened < 4e9:
+        opened = None
+    raw = item.get("stats")
+    stats = {}
+    if isinstance(raw, dict):
+        for key in ("fixed", "skipped", "handled", "total"):
+            value = raw.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                stats[key] = value
+    return {"path": item["path"], "opened_at": None if opened is None else float(opened), "stats": stats}
+
+
 class Recent:
     """Recently opened documents: path, time and counters; no text, no findings."""
 
@@ -181,7 +198,7 @@ class Recent:
         self.path = path or os.path.join(data_dir(), "недавние.json")
         items = _read_json(self.path, [])
         # Keep only valid items: must be dicts with a string "path" field
-        self._items = [i for i in (items if isinstance(items, list) else [])
+        self._items = [_clean_recent(i) for i in (items if isinstance(items, list) else [])
                        if isinstance(i, dict) and isinstance(i.get("path"), str)]
 
     def items(self):
