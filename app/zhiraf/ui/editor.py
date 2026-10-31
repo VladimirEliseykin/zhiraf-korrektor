@@ -363,7 +363,15 @@ class ReviewEditor(QTextEdit):
         super().mousePressEvent(event)
 
     def _enter_edit_mode(self):
+        # no history exists yet: take the mark colours off the whole text once, so that they can never be an
+        # undo step; Esc paints them back
         self.setReadOnly(False)
+        self.setUndoRedoEnabled(False)
+        block = self.document().firstBlock()
+        while block.isValid():
+            if self._has_marks(block):
+                self._strip_marks(block)
+            block = block.next()
         self.setUndoRedoEnabled(True)
         self.edit_mode_changed.emit(True)
 
@@ -372,51 +380,12 @@ class ReviewEditor(QTextEdit):
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
         pending, self._pending_repaint = self._pending_repaint, set()
+        pending.update(m.paragraph for m in self._session.marks)
         self.repaint_paragraphs(pending)
         self.edit_mode_changed.emit(False)
 
-    def _drop_marks_before_edit(self):
-        """The reader is about to change text: take the mark colours off the touched blocks FIRST.
-
-        Done before the change, with the history reset, so that colours are never an undo step of their own
-        (an undo would otherwise bring back a stale, clickable mark the session no longer has).
-        """
-        if self.isReadOnly() or self._doc is None:
-            return
-        cursor = self.textCursor()
-        first = self.document().findBlock(cursor.selectionStart())
-        last = self.document().findBlock(cursor.selectionEnd())
-        marked = []
-        while first.isValid() and first.blockNumber() <= last.blockNumber():
-            if self._has_marks(first):
-                marked.append(first)
-            first = first.next()
-        if marked:
-            self.setUndoRedoEnabled(False)
-            for block in marked:
-                self._strip_marks(block)
-            self.setUndoRedoEnabled(True)
-
-    @staticmethod
-    def _has_marks(block):
-        it = block.begin()
-        while not it.atEnd():
-            if it.fragment().charFormat().hasProperty(MARK_PROP):
-                return True
-            it += 1
-        return False
-
-    def insertPlainText(self, text):
-        self._drop_marks_before_edit()
-        super().insertPlainText(text)
-
     def keyPressEvent(self, event):
         if not self.isReadOnly():
-            edits = (bool(event.text().strip("\x1b")) and not event.modifiers() & Qt.ControlModifier) \
-                or event.key() in (Qt.Key_Backspace, Qt.Key_Delete) \
-                or (event.modifiers() & Qt.ControlModifier and event.key() in (Qt.Key_X, Qt.Key_V))
-            if edits:
-                self._drop_marks_before_edit()
             if event.key() == Qt.Key_Escape:
                 self._leave_edit_mode()
                 return
@@ -436,10 +405,6 @@ class ReviewEditor(QTextEdit):
         block = self.document().findBlock(position)
         self._dirty.add(block.blockNumber())
         self._timer.start()
-        if self._session.version(block.blockNumber()) > 0:
-            # the session dropped this paragraph's marks when it took the reader's text; an undo can bring the
-            # colours back, so take them off again (not while the document is still inside the change)
-            QTimer.singleShot(0, lambda n=block.blockNumber(): self._strip_if_stale(n))
 
     def _block_count_changed(self, count):
         if not self._writing and self._doc is not None and count != len(self._doc.paragraphs):
@@ -464,13 +429,16 @@ class ReviewEditor(QTextEdit):
             spans = spans_from_block(block)
             self._doc.paragraphs[i].spans = spans
             self._session.replace_paragraph(i, "".join(s.text for s in spans))
-            self._strip_marks(block)
             self.paragraph_edited.emit(i)
 
-    def _strip_if_stale(self, number):
-        block = self.document().findBlockByNumber(number)
-        if block.isValid() and not self._writing:
-            self._strip_marks(block)
+    @staticmethod
+    def _has_marks(block):
+        it = block.begin()
+        while not it.atEnd():
+            if it.fragment().charFormat().hasProperty(MARK_PROP):
+                return True
+            it += 1
+        return False
 
     def _strip_marks(self, block):
         """Take the mark formatting off a block in place (the reader's cursor stays where it is)."""

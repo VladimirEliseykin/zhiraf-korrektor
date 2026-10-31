@@ -400,3 +400,34 @@ def test_deferred_repaint_is_applied_on_escape(qtbot):
     assert marked_text(editor.document().findBlockByNumber(1)) == ""
     QTest.keyClick(editor, Qt.Key_Escape)
     assert marked_text(editor.document().findBlockByNumber(1)) == "информации"
+
+
+def test_two_typings_both_undone_and_marks_hidden_only_in_edit_mode(qtbot):
+    doc, session = make(["первый абзац", "Работа с информации"], editable=True)
+    session.add_findings(1, 0, [finding(9, 19, "информацией")])
+    editor = shown(qtbot, doc, session)
+    assert marked_chars(editor) > 0
+    editor._enter_edit_mode()
+    assert marked_chars(editor) == 0
+    for number, word in ((0, "Да. "), (1, "Ещё ")):
+        cursor = editor.textCursor()
+        cursor.setPosition(editor.document().findBlockByNumber(number).position())
+        editor.setTextCursor(cursor)
+        editor.insertPlainText(word)
+    editor.document().undo()
+    editor.document().undo()
+    assert [b.text() for b in blocks(editor)] == ["первый абзац", "Работа с информации"]
+    editor.document().redo()
+    editor.document().redo()
+    QTest.keyClick(editor, Qt.Key_Escape)
+    assert [b.text() for b in blocks(editor)] == ["Да. первый абзац", "Ещё Работа с информации"]
+    assert marked_chars(editor) == 0                      # the edited paragraphs lost their marks for good
+
+
+def test_marks_come_back_after_escape_in_untouched_paragraphs(qtbot):
+    doc, session = make(["первый абзац", "Работа с информации"], editable=True)
+    session.add_findings(1, 0, [finding(9, 19, "информацией")])
+    editor = shown(qtbot, doc, session)
+    editor._enter_edit_mode()
+    QTest.keyClick(editor, Qt.Key_Escape)
+    assert marked_text(editor.document().findBlockByNumber(1)) == "информации"
