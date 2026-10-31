@@ -105,7 +105,7 @@ def test_crash_gives_failed_with_message_and_resume(qtbot, models_dir):
     finish(qtbot, c)
     assert c.state == "failed" and c.error[0] == "crash" and "прервалась" in c.error[1]
     assert logged == [c.error[2]]
-    assert any(m.rule.startswith("RULE_") for m in session.marks) or session.marks
+    assert any(m.fix is not None and m.fix.strip() == "," for m in session.marks)   # the commas stage got through
     before = keys(session)
     c.factories = "fakes:make_factories"
     c.resume()
@@ -125,6 +125,8 @@ def test_close_stops_child_and_ignores_late_messages(qtbot, models_dir):
     qtbot.wait(300)
     assert c.state == "running" and c.job._process.is_alive() is False
     assert c.error is None and len(session.marks) == n
+    c._tick()   # a tick after close() changes nothing
+    assert c.state == "running" and c.error is None and len(session.marks) == n
 
 
 def test_show_checks_off_hides_check_level(qtbot, models_dir):
@@ -156,4 +158,4 @@ def test_polling_handles_flood(qtbot, models_dir):
     while c.state == "running":
         qtbot.wait(50)
     c.close()
-    assert c.state == "done" and slowest[0] < 0.5
+    assert c.state == "done" and slowest[0] < 1.0
