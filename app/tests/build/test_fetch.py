@@ -86,3 +86,18 @@ def test_real_lock_is_well_formed():
         for line in f:
             if line.strip() and not line.startswith("#"):
                 assert len(line.rstrip("\n").split("\t")) == 4
+
+
+def test_download_has_a_timeout(tmp_path, monkeypatch):
+    import urllib.request
+    url, sha = _src(tmp_path)
+    seen = {}
+    real = urllib.request.urlopen
+
+    def spy(target, *args, **kwargs):
+        seen["timeout"] = kwargs.get("timeout", args[1] if len(args) > 1 else None)
+        return real(target, *args, **kwargs)
+
+    monkeypatch.setattr(urllib.request, "urlopen", spy)
+    F.fetch(F.Dep("wheel:x", url, sha, "wheel"), str(tmp_path / "cache"))
+    assert seen["timeout"] == 60

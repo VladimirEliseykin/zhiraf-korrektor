@@ -47,7 +47,7 @@ def fetch(dep, cache_dir):
         os.remove(target)
     part = target + ".part"
     try:
-        with urllib.request.urlopen(dep.url) as src, open(part, "wb") as dst:
+        with urllib.request.urlopen(dep.url, timeout=60) as src, open(part, "wb") as dst:
             shutil.copyfileobj(src, dst, 1 << 20)
         got = _sha256(part)
         if got != dep.sha256:
