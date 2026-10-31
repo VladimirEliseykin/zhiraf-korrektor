@@ -149,3 +149,17 @@ def test_exe_pe_properties(built):
     assert {i.upper() for i in pe["imports"]} == {"KERNEL32.DLL", "USER32.DLL"}
     for name in pe["imports"]:
         assert not name.lower().startswith("api-ms-win-crt") and name.lower() != "msvcrt.dll"
+
+
+@needs_toolchain
+def test_launcher_build_is_reproducible(tmp_path, qapp):
+    import time
+    from build.icon import make_icon
+    from build.make_launcher import make_launcher
+    ico = str(tmp_path / "zhiraf.ico")
+    make_icon(LOGO, ico)
+    first, second = str(tmp_path / "a" / "l.exe"), str(tmp_path / "b" / "l.exe")
+    make_launcher(TOOLCHAIN, first, ico)
+    time.sleep(2)   # the PE header timestamp has one-second resolution
+    make_launcher(TOOLCHAIN, second, ico)
+    assert open(first, "rb").read() == open(second, "rb").read()
