@@ -45,8 +45,12 @@ class _RecentRow(QFrame):
         badge.setStyleSheet("font-weight: bold; color: %s;" % grey)
         names = QVBoxLayout()
         names.setSpacing(0)
-        names.addWidget(QLabel(os.path.basename(self.path), self))
+        name = QLabel(os.path.basename(self.path), self)
         folder = QLabel(os.path.dirname(self.path), self)
+        for label in (name, folder):
+            label.setTextFormat(Qt.PlainText)   # a path is never markup
+        self.name_label, self.folder_label = name, folder
+        names.addWidget(name)
         folder.setStyleSheet("font-size: 11px; color: %s;" % grey)
         names.addWidget(folder)
         layout.addWidget(badge)

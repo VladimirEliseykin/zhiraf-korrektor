@@ -164,3 +164,12 @@ def test_recent_scrolls_when_small(qapp):
     QApplication.processEvents()
     assert len(screen._list.findChildren(type(screen.recent_rows[0]))) <= storage.MAX_RECENT
     assert screen.recent_scroll.verticalScrollBar().maximum() > 0
+
+
+def test_recent_path_is_plain_text(qapp, tmp_path):
+    from PySide2.QtCore import Qt
+    screen = StartScreen()
+    screen.set_recent([_item(str(tmp_path / "<i>x.docx"))])
+    row = screen.recent_rows[0]
+    assert row.name_label.textFormat() == Qt.PlainText and row.folder_label.textFormat() == Qt.PlainText
+    assert row.name_label.text() == "<i>x.docx"
