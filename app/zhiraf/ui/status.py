@@ -133,6 +133,8 @@ class StatusPanel(QWidget):
         for key, word in _COUNT_WORDS:
             self.labels[key].setText("%s: %d" % (word, counts.get(key, 0)))
         errors = counts.get("errors", 0)
+        badge = theme.COLORS["paper"] if errors > 0 else theme.COLORS["skipped"]
+        self.help_badge.setPixmap(theme.icon("help", color=badge).pixmap(18, 18))
         self.accept_all_button.setEnabled(errors > 0)
         self.accept_all_button.setToolTip(_TOOLTIP % errors)
         self._place_badge()

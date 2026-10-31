@@ -110,3 +110,25 @@ def test_notice_without_action_hides_button(qtbot):
     bar.show()
     bar.show_notice("Готово")
     assert bar.isVisible() and not bar.action_button.isVisible()
+
+
+def _dominant(label):
+    image = label.pixmap().toImage()
+    counts = {}
+    for x in range(image.width()):
+        for y in range(image.height()):
+            c = image.pixelColor(x, y)
+            if c.alpha() > 200:
+                counts[c.name()] = counts.get(c.name(), 0) + 1
+    return max(counts, key=counts.get)
+
+
+def test_help_badge_colour_follows_enabled_state(qtbot):
+    panel = StatusPanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.set_counts({"errors": 3})
+    assert _dominant(panel.help_badge) == theme.COLORS["paper"]
+    panel.set_counts({"errors": 0})
+    assert _dominant(panel.help_badge) == theme.COLORS["skipped"]
+    assert panel.help_badge.parent() is panel.accept_all_button
