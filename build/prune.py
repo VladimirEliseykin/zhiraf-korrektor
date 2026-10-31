@@ -19,17 +19,31 @@ FORBIDDEN_STDLIB = (
 
 # Names (glob patterns) inside PySide2/. An entry with a slash is a path under PySide2/; a trailing slash is a folder.
 FORBIDDEN_QT = (
-    "QtNetwork*", "Qt5Network.dll",
+    "QtNetwork*",
     "QtWebEngine*", "Qt5WebEngine*", "QtWebChannel*", "QtWebSockets*",
-    "QtQml*", "QtQuick*", "Qt5Qml*", "Qt5Quick*", "Qt3D*", "Qt53D*",
+    "QtQml*", "QtQuick*", "Qt5Quick*", "Qt3D*", "Qt53D*",
+    "QtNetworkAuth*", "Qt5NetworkAuth*", "QtPdf*", "Qt5Pdf*", "QtDesigner*", "Qt5Designer*",
+    "QtWebView*", "Qt5WebView*", "QtSerialBus*", "Qt5SerialBus*",
     "QtMultimedia*", "Qt5Multimedia*", "QtPositioning*", "QtLocation*", "QtBluetooth*", "QtNfc*",
     "QtRemoteObjects*", "QtSensors*", "QtSerialPort*", "QtScxml*", "QtCharts*", "QtDataVisualization*",
     "plugins/bearer", "plugins/geoservices", "plugins/position", "plugins/sensors", "plugins/qmltooling",
-    "plugins/webview",
+    "plugins/webview", "plugins/mediaservice", "plugins/audio", "plugins/canbus", "plugins/gamepads",
+    "plugins/renderers", "plugins/assetimporters", "plugins/geometryloaders", "plugins/playlistformats",
+    "plugins/renderplugins", "plugins/scenegraph", "plugins/sceneparsers", "plugins/sensorgestures",
+    "plugins/sqldrivers", "plugins/texttospeech", "plugins/virtualkeyboard", "plugins/generic",
+    "plugins/platforminputcontexts",
+    # plugins that link against removed DLLs
+    "plugins/imageformats/qpdf.dll", "plugins/platforms/qwebgl.dll",
     "qml/", "translations/", "examples/", "include/",
     "*.exe",
 )
 KEEP_TRANSLATIONS = ("qtbase_ru.qm",)
+# On top of the patterns above, every other Qt<Module>.pyd/.pyi and Qt5<Module>.dll in PySide2/ is removed.
+# pyside2.abi3.dll, which every PySide2 module loads, imports Qt5Qml.dll, and that imports Qt5Network.dll: those two
+# DLLs must stay for `import PySide2.QtCore` to work, although Python gets no QtQml or QtNetwork module.
+KEEP_QT_MODULES = ("QtCore", "QtGui", "QtWidgets", "QtSvg", "QtPrintSupport")
+KEEP_QT_DLLS = ("Qt5Core.dll", "Qt5Gui.dll", "Qt5Widgets.dll", "Qt5Svg.dll", "Qt5PrintSupport.dll",
+                "Qt5Qml.dll", "Qt5Network.dll")
 
 PYTHON_DIR = "python"
 ZIP_NAME = "python37.zip"
@@ -100,19 +114,28 @@ def forbidden_qt_paths(dist):
         else:
             found += [os.path.join(PYSIDE_DIR, n) for n in names
                       if fnmatch.fnmatchcase(n.lower(), entry.lower())]
+    for n in names:
+        stem, ext = os.path.splitext(n)
+        if (ext == ".dll" and n.startswith("Qt5") and n not in KEEP_QT_DLLS) or \
+                (ext in (".pyd", ".pyi") and stem.startswith("Qt") and stem not in KEEP_QT_MODULES):
+            found.append(os.path.join(PYSIDE_DIR, n))
     return sorted(set(found))
 
 
 def _strip_zip(zip_path):
     removed = []
     tmp = zip_path + ".tmp"
-    with zipfile.ZipFile(zip_path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
-        for info in src.infolist():
-            if not info.filename.endswith("/") and _member_forbidden(info.filename):
-                removed.append(info.filename)
-                continue
-            dst.writestr(info, src.read(info.filename))
-    os.replace(tmp, zip_path)
+    try:
+        with zipfile.ZipFile(zip_path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
+            for info in src.infolist():
+                if not info.filename.endswith("/") and _member_forbidden(info.filename):
+                    removed.append(info.filename)
+                    continue
+                dst.writestr(info, src.read(info.filename))
+        os.replace(tmp, zip_path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     return removed
 
 

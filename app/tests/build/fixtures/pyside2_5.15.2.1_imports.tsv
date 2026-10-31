@@ -1,0 +1,283 @@
+PySide2/concrt140.dll	
+PySide2/d3dcompiler_47.dll	
+PySide2/libEGL.dll	
+PySide2/libGLESv2.dll	
+PySide2/msvcp140_1.dll	
+PySide2/msvcp140_2.dll	
+PySide2/msvcp140_codecvt_ids.dll	
+PySide2/msvcp140.dll	
+PySide2/opengl32sw.dll	
+PySide2/plugins/assetimporters/assimp.dll	Qt5Core.dll Qt5Gui.dll Qt5Quick3DAssetImport.dll 
+PySide2/plugins/assetimporters/uip.dll	Qt5Core.dll Qt5Gui.dll Qt5Quick3DAssetImport.dll 
+PySide2/plugins/audio/qtaudio_wasapi.dll	Qt5Core.dll Qt5Multimedia.dll 
+PySide2/plugins/audio/qtaudio_windows.dll	Qt5Core.dll Qt5Multimedia.dll 
+PySide2/plugins/bearer/qgenericbearer.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/plugins/canbus/qtpassthrucanbus.dll	Qt5Core.dll Qt5SerialBus.dll 
+PySide2/plugins/canbus/qtpeakcanbus.dll	Qt5Core.dll Qt5SerialBus.dll 
+PySide2/plugins/canbus/qtsysteccanbus.dll	Qt5Core.dll Qt5SerialBus.dll 
+PySide2/plugins/canbus/qttinycanbus.dll	Qt5Core.dll Qt5SerialBus.dll 
+PySide2/plugins/canbus/qtvectorcanbus.dll	Qt5Core.dll Qt5SerialBus.dll 
+PySide2/plugins/canbus/qtvirtualcanbus.dll	Qt5Core.dll Qt5Network.dll Qt5SerialBus.dll 
+PySide2/plugins/gamepads/xinputgamepad.dll	Qt5Core.dll Qt5Gamepad.dll 
+PySide2/plugins/generic/qtuiotouchplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll 
+PySide2/plugins/geometryloaders/defaultgeometryloader.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/geometryloaders/gltfgeometryloader.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll 
+PySide2/plugins/geoservices/qtgeoservices_esri.dll	Qt5Core.dll Qt5Location.dll Qt5Network.dll Qt5Positioning.dll 
+PySide2/plugins/geoservices/qtgeoservices_itemsoverlay.dll	Qt5Core.dll Qt5Gui.dll Qt5Location.dll Qt5Positioning.dll Qt5Quick.dll 
+PySide2/plugins/geoservices/qtgeoservices_mapbox.dll	Qt5Core.dll Qt5Location.dll Qt5Network.dll Qt5Positioning.dll 
+PySide2/plugins/geoservices/qtgeoservices_nokia.dll	Qt5Core.dll Qt5Gui.dll Qt5Location.dll Qt5Network.dll Qt5Positioning.dll 
+PySide2/plugins/geoservices/qtgeoservices_osm.dll	Qt5Core.dll Qt5Gui.dll Qt5Location.dll Qt5Network.dll Qt5Positioning.dll 
+PySide2/plugins/iconengines/qsvgicon.dll	Qt5Core.dll Qt5Gui.dll Qt5Svg.dll 
+PySide2/plugins/imageformats/qgif.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qicns.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qico.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qjpeg.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qpdf.dll	Qt5Core.dll Qt5Gui.dll Qt5Pdf.dll 
+PySide2/plugins/imageformats/qsvg.dll	Qt5Core.dll Qt5Gui.dll Qt5Svg.dll 
+PySide2/plugins/imageformats/qtga.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qtiff.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qwbmp.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/imageformats/qwebp.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/mediaservice/dsengine.dll	Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5Network.dll Qt5Widgets.dll 
+PySide2/plugins/mediaservice/qtmedia_audioengine.dll	Qt5Core.dll Qt5Multimedia.dll 
+PySide2/plugins/mediaservice/wmfengine.dll	Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5Network.dll Qt5Widgets.dll 
+PySide2/plugins/platforminputcontexts/qtvirtualkeyboardplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/platforms/qdirect2d.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/platforms/qminimal.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/platforms/qoffscreen.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/platforms/qwebgl.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5Quick.dll Qt5WebSockets.dll 
+PySide2/plugins/platforms/qwindows.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/platformthemes/qxdgdesktopportal.dll	Qt5Core.dll Qt5DBus.dll Qt5Gui.dll 
+PySide2/plugins/playlistformats/qtmultimedia_m3u.dll	Qt5Core.dll Qt5Multimedia.dll Qt5Network.dll 
+PySide2/plugins/position/qtposition_positionpoll.dll	Qt5Core.dll Qt5Positioning.dll 
+PySide2/plugins/position/qtposition_serialnmea.dll	Qt5Core.dll Qt5Positioning.dll Qt5SerialPort.dll 
+PySide2/plugins/position/qtposition_winrt.dll	Qt5Core.dll Qt5Positioning.dll 
+PySide2/plugins/printsupport/windowsprintersupport.dll	Qt5Core.dll Qt5Gui.dll Qt5PrintSupport.dll 
+PySide2/plugins/qmltooling/qmldbg_debugger.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_inspector.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/plugins/qmltooling/qmldbg_local.dll	Qt5Core.dll Qt5Network.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_messages.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_nativedebugger.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_native.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_preview.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/plugins/qmltooling/qmldbg_profiler.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_quickprofiler.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/plugins/qmltooling/qmldbg_server.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/plugins/qmltooling/qmldbg_tcp.dll	Qt5Core.dll Qt5Network.dll Qt5Qml.dll 
+PySide2/plugins/renderers/openglrenderer.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/renderplugins/scene2d.dll	Qt53DCore.dll Qt53DQuickScene2D.dll Qt53DRender.dll Qt5Core.dll 
+PySide2/plugins/scenegraph/qsgd3d12backend.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/plugins/sceneparsers/gltfsceneexport.dll	Qt53DCore.dll Qt53DExtras.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/sceneparsers/gltfsceneimport.dll	Qt53DCore.dll Qt53DExtras.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/plugins/sensorgestures/qtsensorgestures_plugin.dll	Qt5Core.dll Qt5Sensors.dll 
+PySide2/plugins/sensorgestures/qtsensorgestures_shakeplugin.dll	Qt5Core.dll Qt5Sensors.dll 
+PySide2/plugins/sensors/qtsensors_generic.dll	Qt5Core.dll Qt5Sensors.dll 
+PySide2/plugins/sqldrivers/qsqlite.dll	Qt5Core.dll Qt5Sql.dll 
+PySide2/plugins/sqldrivers/qsqlodbc.dll	Qt5Core.dll Qt5Sql.dll 
+PySide2/plugins/sqldrivers/qsqlpsql.dll	Qt5Core.dll Qt5Sql.dll 
+PySide2/plugins/styles/qwindowsvistastyle.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll 
+PySide2/plugins/texttospeech/qtexttospeech_sapi.dll	Qt5Core.dll Qt5TextToSpeech.dll 
+PySide2/plugins/virtualkeyboard/qtvirtualkeyboard_hangul.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/virtualkeyboard/qtvirtualkeyboard_openwnn.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/virtualkeyboard/qtvirtualkeyboard_pinyin.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/virtualkeyboard/qtvirtualkeyboard_tcime.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/virtualkeyboard/qtvirtualkeyboard_thai.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/plugins/webview/qtwebview_webengine.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick.dll Qt5WebEngine.dll Qt5WebView.dll 
+PySide2/pyside2.abi3.dll	Qt5Core.dll Qt5Qml.dll shiboken2.abi3.dll 
+PySide2/qml/Qt3D/Animation/quick3danimationplugin.dll	Qt53DAnimation.dll Qt53DCore.dll Qt53DQuickAnimation.dll Qt53DQuick.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt3D/Core/quick3dcoreplugin.dll	Qt53DCore.dll Qt53DQuick.dll Qt5Core.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/Qt3D/Extras/quick3dextrasplugin.dll	Qt53DCore.dll Qt53DExtras.dll Qt53DQuickExtras.dll Qt53DRender.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt3D/Input/quick3dinputplugin.dll	Qt53DCore.dll Qt53DInput.dll Qt53DQuickInput.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt3D/Logic/quick3dlogicplugin.dll	Qt53DCore.dll Qt53DLogic.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt3D/Render/quick3drenderplugin.dll	Qt53DCore.dll Qt53DQuick.dll Qt53DQuickRender.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll 
+PySide2/qml/QtBluetooth/declarative_bluetooth.dll	Qt5Bluetooth.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/QtCharts/qtchartsqml2.dll	Qt5Charts.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Widgets.dll 
+PySide2/qml/QtDataVisualization/datavisualizationqml2.dll	Qt5Core.dll Qt5DataVisualization.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtGamepad/declarative_gamepad.dll	Qt5Core.dll Qt5Gamepad.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtGraphicalEffects/private/qtgraphicaleffectsprivate.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtGraphicalEffects/qtgraphicaleffectsplugin.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt/labs/animation/labsanimationplugin.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt/labs/calendar/qtlabscalendarplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/Qt/labs/folderlistmodel/qmlfolderlistmodelplugin.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt/labs/location/locationlabsplugin.dll	Qt5Core.dll Qt5Location.dll Qt5Positioning.dll Qt5Qml.dll 
+PySide2/qml/Qt/labs/lottieqt/lottieqtplugin.dll	Qt5Bodymovin.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/Qt/labs/platform/qtlabsplatformplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5QuickTemplates2.dll Qt5Widgets.dll 
+PySide2/qml/Qt/labs/qmlmodels/labsmodelsplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QmlModels.dll 
+PySide2/qml/Qt/labs/settings/qmlsettingsplugin.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/Qt/labs/sharedimage/sharedimageplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/Qt/labs/wavefrontmesh/qmlwavefrontmeshplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtLocation/declarative_location.dll	Qt5Core.dll Qt5Location.dll Qt5PositioningQuick.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtMultimedia/declarative_multimedia.dll	Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5MultimediaQuick.dll Qt5Network.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtNfc/declarative_nfc.dll	Qt5Core.dll Qt5Nfc.dll Qt5Qml.dll 
+PySide2/qml/QtPositioning/declarative_positioning.dll	Qt5Core.dll Qt5Positioning.dll Qt5PositioningQuick.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtPurchasing/declarative_purchasing.dll	Qt5Core.dll Qt5Purchasing.dll Qt5Qml.dll 
+PySide2/qml/QtQml/Models.2/modelsplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QmlModels.dll 
+PySide2/qml/QtQml/qmlplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QmlModels.dll 
+PySide2/qml/QtQml/RemoteObjects/qtqmlremoteobjects.dll	Qt5Core.dll Qt5Qml.dll Qt5RemoteObjects.dll 
+PySide2/qml/QtQml/StateMachine/qtqmlstatemachine.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/QtQml/WorkerScript.2/workerscriptplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QmlWorkerScript.dll 
+PySide2/qml/QtQuick.2/qtquick2plugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QmlModels.dll Qt5QmlWorkerScript.dll Qt5Quick.dll 
+PySide2/qml/QtQuick3D/Effects/qtquick3deffectplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick3D.dll 
+PySide2/qml/QtQuick3D/Helpers/qtquick3dhelpersplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick3D.dll 
+PySide2/qml/QtQuick3D/Materials/qtquick3dmaterialplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick3D.dll 
+PySide2/qml/QtQuick3D/qquick3dplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick3D.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/Controls.2/Fusion/qtquickcontrols2fusionstyleplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickControls2.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Controls.2/Imagine/qtquickcontrols2imaginestyleplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickControls2.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Controls.2/Material/qtquickcontrols2materialstyleplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickControls2.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Controls.2/qtquickcontrols2plugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickControls2.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Controls.2/Universal/qtquickcontrols2universalstyleplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickControls2.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Controls/qtquickcontrolsplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Widgets.dll 
+PySide2/qml/QtQuick/Controls/Styles/Flat/qtquickextrasflatplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/Dialogs/dialogplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/Dialogs/Private/dialogsprivateplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll 
+PySide2/qml/QtQuick/Extras/qtquickextrasplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/Layouts/qquicklayoutsplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/LocalStorage/qmllocalstorageplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Sql.dll 
+PySide2/qml/QtQuick/Particles.2/particlesplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QuickParticles.dll 
+PySide2/qml/QtQuick/Pdf/pdfplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Pdf.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/PrivateWidgets/widgetsplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Widgets.dll 
+PySide2/qml/QtQuick/Scene2D/qtquickscene2dplugin.dll	Qt53DCore.dll Qt53DQuickScene2D.dll Qt53DRender.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/qml/QtQuick/Scene3D/qtquickscene3dplugin.dll	Qt53DAnimation.dll Qt53DCore.dll Qt53DInput.dll Qt53DLogic.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/Shapes/qmlshapesplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5QuickShapes.dll 
+PySide2/qml/QtQuick/Templates.2/qtquicktemplates2plugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/qml/QtQuick/Timeline/qtquicktimelineplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/VirtualKeyboard/qtquickvirtualkeyboardplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/qml/QtQuick/VirtualKeyboard/Settings/qtquickvirtualkeyboardsettingsplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5VirtualKeyboard.dll 
+PySide2/qml/QtQuick/VirtualKeyboard/Styles/qtquickvirtualkeyboardstylesplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Svg.dll 
+PySide2/qml/QtQuick/Window.2/windowplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/qml/QtQuick/XmlListModel/qmlxmllistmodelplugin.dll	Qt5Core.dll Qt5Network.dll Qt5Qml.dll Qt5XmlPatterns.dll 
+PySide2/qml/QtRemoteObjects/qtremoteobjects.dll	Qt5Core.dll Qt5Qml.dll Qt5RemoteObjects.dll 
+PySide2/qml/QtScxml/declarative_scxml.dll	Qt5Core.dll Qt5Qml.dll Qt5Scxml.dll 
+PySide2/qml/QtSensors/declarative_sensors.dll	Qt5Core.dll Qt5Qml.dll Qt5Sensors.dll 
+PySide2/qml/QtTest/qmltestplugin.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5QuickTest.dll Qt5Test.dll Qt5Widgets.dll 
+PySide2/qml/QtWebChannel/declarative_webchannel.dll	Qt5Core.dll Qt5Qml.dll Qt5WebChannel.dll 
+PySide2/qml/QtWebEngine/qtwebengineplugin.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick.dll Qt5WebEngineCore.dll Qt5WebEngine.dll 
+PySide2/qml/QtWebSockets/declarative_qmlwebsockets.dll	Qt5Core.dll Qt5Network.dll Qt5Qml.dll Qt5WebSockets.dll 
+PySide2/qml/QtWebView/declarative_webview.dll	Qt5Core.dll Qt5Qml.dll Qt5Quick.dll Qt5WebView.dll 
+PySide2/qml/QtWinExtras/qml_winextras.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5Qml.dll Qt5Quick.dll Qt5WinExtras.dll 
+PySide2/Qt3DAnimation.pyd	pyside2.abi3.dll Qt53DAnimation.dll Qt53DCore.dll Qt5Core.dll shiboken2.abi3.dll 
+PySide2/Qt3DCore.pyd	pyside2.abi3.dll Qt53DCore.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/Qt3DExtras.pyd	pyside2.abi3.dll Qt53DCore.dll Qt53DExtras.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/Qt3DInput.pyd	pyside2.abi3.dll Qt53DCore.dll Qt53DInput.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/Qt3DLogic.pyd	pyside2.abi3.dll Qt53DCore.dll Qt53DLogic.dll Qt5Core.dll shiboken2.abi3.dll 
+PySide2/Qt3DRender.pyd	pyside2.abi3.dll Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/Qt53DAnimation.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt53DCore.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll 
+PySide2/Qt53DExtras.dll	Qt53DCore.dll Qt53DInput.dll Qt53DLogic.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt53DInput.dll	Qt53DCore.dll Qt5Core.dll Qt5Gamepad.dll Qt5Gui.dll 
+PySide2/Qt53DLogic.dll	Qt53DCore.dll Qt5Core.dll 
+PySide2/Qt53DQuickAnimation.dll	Qt53DAnimation.dll Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt53DQuick.dll	Qt53DCore.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QmlModels.dll Qt5Quick.dll 
+PySide2/Qt53DQuickExtras.dll	Qt53DCore.dll Qt53DExtras.dll Qt53DInput.dll Qt53DLogic.dll Qt53DQuick.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll 
+PySide2/Qt53DQuickInput.dll	Qt53DCore.dll Qt53DInput.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt53DQuickRender.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt53DQuickScene2D.dll	Qt53DCore.dll Qt53DRender.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt53DRender.dll	Qt53DCore.dll Qt5Concurrent.dll Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5Bluetooth.dll	Qt5Core.dll 
+PySide2/Qt5Bodymovin.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5Charts.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll 
+PySide2/Qt5Concurrent.dll	Qt5Core.dll 
+PySide2/Qt5Core.dll	
+PySide2/Qt5DataVisualization.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5DBus.dll	Qt5Core.dll 
+PySide2/Qt5DesignerComponents.dll	Qt5Core.dll Qt5Designer.dll Qt5Gui.dll Qt5Widgets.dll Qt5Xml.dll 
+PySide2/Qt5Designer.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll Qt5Xml.dll 
+PySide2/Qt5Gamepad.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5Gui.dll	Qt5Core.dll 
+PySide2/Qt5Help.dll	Qt5Core.dll Qt5Gui.dll Qt5Sql.dll Qt5Widgets.dll 
+PySide2/Qt5Location.dll	Qt5Core.dll Qt5Gui.dll Qt5Positioning.dll Qt5PositioningQuick.dll Qt5Qml.dll Qt5QmlModels.dll Qt5Quick.dll 
+PySide2/Qt5Multimedia.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll 
+PySide2/Qt5MultimediaQuick.dll	Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5Quick.dll 
+PySide2/Qt5MultimediaWidgets.dll	Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5Widgets.dll 
+PySide2/Qt5NetworkAuth.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/Qt5Network.dll	Qt5Core.dll 
+PySide2/Qt5Nfc.dll	Qt5Core.dll 
+PySide2/Qt5OpenGL.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll 
+PySide2/Qt5Pdf.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll 
+PySide2/Qt5PdfWidgets.dll	Qt5Core.dll Qt5Gui.dll Qt5Pdf.dll Qt5Widgets.dll 
+PySide2/Qt5Positioning.dll	Qt5Core.dll 
+PySide2/Qt5PositioningQuick.dll	Qt5Core.dll Qt5Network.dll Qt5Positioning.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt5PrintSupport.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll 
+PySide2/Qt5Purchasing.dll	Qt5Core.dll 
+PySide2/Qt5Qml.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/Qt5QmlModels.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt5QmlWorkerScript.dll	Qt5Core.dll Qt5Network.dll Qt5Qml.dll 
+PySide2/Qt5Quick3DAssetImport.dll	Qt5Core.dll Qt5Gui.dll Qt5Quick3DUtils.dll 
+PySide2/Qt5Quick3D.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QmlModels.dll Qt5Quick3DRender.dll Qt5Quick3DRuntimeRender.dll Qt5Quick3DUtils.dll Qt5Quick.dll 
+PySide2/Qt5Quick3DRender.dll	Qt5Core.dll Qt5Gui.dll Qt5Quick3DUtils.dll 
+PySide2/Qt5Quick3DRuntimeRender.dll	Qt5Core.dll Qt5Gui.dll Qt5Quick3DAssetImport.dll Qt5Quick3DRender.dll Qt5Quick3DUtils.dll 
+PySide2/Qt5Quick3DUtils.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5QuickControls2.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5QuickTemplates2.dll 
+PySide2/Qt5Quick.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5Qml.dll Qt5QmlModels.dll 
+PySide2/Qt5QuickParticles.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt5QuickShapes.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt5QuickTemplates2.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QmlModels.dll Qt5Quick.dll 
+PySide2/Qt5QuickTest.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Test.dll Qt5Widgets.dll 
+PySide2/Qt5QuickWidgets.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll Qt5Widgets.dll 
+PySide2/Qt5RemoteObjects.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/Qt5Script.dll	Qt5Core.dll 
+PySide2/Qt5ScriptTools.dll	Qt5Core.dll Qt5Gui.dll Qt5Script.dll Qt5Widgets.dll 
+PySide2/Qt5Scxml.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt5Sensors.dll	Qt5Core.dll 
+PySide2/Qt5SerialBus.dll	Qt5Core.dll Qt5Network.dll Qt5SerialPort.dll 
+PySide2/Qt5SerialPort.dll	Qt5Core.dll 
+PySide2/Qt5Sql.dll	Qt5Core.dll 
+PySide2/Qt5Svg.dll	Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll 
+PySide2/Qt5Test.dll	Qt5Core.dll 
+PySide2/Qt5TextToSpeech.dll	Qt5Core.dll 
+PySide2/Qt5VirtualKeyboard.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt5WebChannel.dll	Qt5Core.dll Qt5Qml.dll 
+PySide2/Qt5WebEngineCore.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5Positioning.dll Qt5Qml.dll Qt5Quick.dll Qt5WebChannel.dll 
+PySide2/Qt5WebEngine.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5Qml.dll Qt5Quick.dll Qt5WebChannel.dll Qt5WebEngineCore.dll 
+PySide2/Qt5WebEngineWidgets.dll	Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5PrintSupport.dll Qt5Quick.dll Qt5QuickWidgets.dll Qt5WebEngineCore.dll Qt5Widgets.dll 
+PySide2/Qt5WebSockets.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/Qt5WebView.dll	Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll 
+PySide2/Qt5Widgets.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5WinExtras.dll	Qt5Core.dll Qt5Gui.dll 
+PySide2/Qt5Xml.dll	Qt5Core.dll 
+PySide2/Qt5XmlPatterns.dll	Qt5Core.dll Qt5Network.dll 
+PySide2/QtAxContainer.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtCharts.pyd	pyside2.abi3.dll Qt5Charts.dll Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtConcurrent.pyd	pyside2.abi3.dll Qt5Core.dll shiboken2.abi3.dll 
+PySide2/QtCore.pyd	pyside2.abi3.dll Qt5Core.dll shiboken2.abi3.dll 
+PySide2/QtDataVisualization.pyd	pyside2.abi3.dll Qt5Core.dll Qt5DataVisualization.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/QtGui.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/QtHelp.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Help.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtLocation.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Location.dll Qt5Positioning.dll shiboken2.abi3.dll 
+PySide2/QtMultimedia.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Multimedia.dll Qt5Network.dll shiboken2.abi3.dll 
+PySide2/QtMultimediaWidgets.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5MultimediaWidgets.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtNetwork.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Network.dll shiboken2.abi3.dll 
+PySide2/QtOpenGLFunctions.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll shiboken2.abi3.dll 
+PySide2/QtOpenGL.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5OpenGL.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtPositioning.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Positioning.dll shiboken2.abi3.dll 
+PySide2/QtPrintSupport.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5PrintSupport.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtQml.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Qml.dll shiboken2.abi3.dll 
+PySide2/QtQuickControls2.pyd	pyside2.abi3.dll Qt5Core.dll Qt5QuickControls2.dll shiboken2.abi3.dll 
+PySide2/QtQuick.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5Quick.dll shiboken2.abi3.dll 
+PySide2/QtQuickWidgets.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Qml.dll Qt5QuickWidgets.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtRemoteObjects.pyd	pyside2.abi3.dll Qt5Core.dll Qt5RemoteObjects.dll shiboken2.abi3.dll 
+PySide2/QtScript.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Script.dll shiboken2.abi3.dll 
+PySide2/QtScriptTools.pyd	pyside2.abi3.dll Qt5Core.dll Qt5ScriptTools.dll shiboken2.abi3.dll 
+PySide2/QtScxml.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Scxml.dll shiboken2.abi3.dll 
+PySide2/QtSensors.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Sensors.dll shiboken2.abi3.dll 
+PySide2/QtSerialPort.pyd	pyside2.abi3.dll Qt5Core.dll Qt5SerialPort.dll shiboken2.abi3.dll 
+PySide2/QtSql.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Sql.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtSvg.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Svg.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtTest.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Test.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtTextToSpeech.pyd	pyside2.abi3.dll Qt5Core.dll Qt5TextToSpeech.dll shiboken2.abi3.dll 
+PySide2/QtUiTools.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtWebChannel.pyd	pyside2.abi3.dll Qt5Core.dll Qt5WebChannel.dll shiboken2.abi3.dll 
+PySide2/QtWebEngineCore.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Network.dll Qt5WebEngineCore.dll shiboken2.abi3.dll 
+PySide2/QtWebEngine.pyd	pyside2.abi3.dll Qt5Core.dll Qt5WebEngine.dll shiboken2.abi3.dll 
+PySide2/QtWebEngineWidgets.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Network.dll Qt5WebEngineWidgets.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtWebSockets.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Network.dll Qt5WebSockets.dll shiboken2.abi3.dll 
+PySide2/QtWidgets.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll shiboken2.abi3.dll 
+PySide2/QtWinExtras.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Gui.dll Qt5Widgets.dll Qt5WinExtras.dll shiboken2.abi3.dll 
+PySide2/QtXmlPatterns.pyd	pyside2.abi3.dll Qt5Core.dll Qt5XmlPatterns.dll shiboken2.abi3.dll 
+PySide2/QtXml.pyd	pyside2.abi3.dll Qt5Core.dll Qt5Xml.dll shiboken2.abi3.dll 
+PySide2/ucrtbase.dll	
+PySide2/vcamp140.dll	
+PySide2/vccorlib140.dll	
+PySide2/vcomp140.dll	
+PySide2/vcruntime140_1.dll	
+PySide2/vcruntime140.dll	
