@@ -17,6 +17,8 @@ from .main_window import MainWindow
 TITLE = "Жираф.Корректор"
 ALREADY_RUNNING = "Жираф.Корректор уже открыт"
 SOMETHING_WRONG = "Что-то пошло не так. Подробности записаны в журнал."
+PROFILE_UNWRITABLE = ("Не удалось открыть папку для настроек: %s. "
+                      "Проверьте, что у вас есть права на запись в свою папку профиля.")
 LOG_NAME = "журнал.txt"
 LOCK_NAME = "запущено.lock"
 LOG_LIMIT = 200 * 1024
@@ -90,12 +92,20 @@ def main(argv=None):
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName(TITLE)
     app.setStyleSheet(theme.stylesheet())
-    lock = acquire_single_instance()
+    try:
+        lock = acquire_single_instance()
+    except OSError:
+        _tell("critical", PROFILE_UNWRITABLE % storage.data_path())
+        return 3
     if lock is None:
         _tell("information", ALREADY_RUNNING)
         return 0
     try:
-        storage.clean_tmp()
+        try:
+            storage.clean_tmp()
+        except OSError:
+            _tell("critical", PROFILE_UNWRITABLE % storage.data_path())
+            return 3
         folder = models_dir()
         problem = missing_models(folder)
         if problem is not None:

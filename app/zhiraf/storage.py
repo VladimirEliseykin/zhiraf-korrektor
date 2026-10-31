@@ -29,6 +29,11 @@ def _base(kind):
     return os.path.join(os.path.expanduser("~"), ".cache", "zhiraf-korrektor", "tmp")
 
 
+def data_path():
+    """The profile folder's path, without creating it (for messages)."""
+    return _base("data")
+
+
 def data_dir():
     path = _base("data")
     os.makedirs(path, exist_ok=True)
