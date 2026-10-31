@@ -142,3 +142,43 @@ def test_strict_mode_hint_is_shown(qtbot, tmp_path):
     texts = [label.text() for label in dlg.findChildren(QLabel)]
     assert "Начнёт действовать при следующей проверке" in texts
     assert "Скрытые пометки появятся снова; новые — со следующей проверки." in texts
+
+
+@pytest.fixture
+def icons_on_buttons():
+    """A style that, like the Windows one, gives every standard dialog button a platform icon."""
+    from PySide2.QtWidgets import QApplication, QProxyStyle, QStyle
+
+    class IconStyle(QProxyStyle):
+        def styleHint(self, hint, option=None, widget=None, returnData=None):
+            if hint == QStyle.SH_DialogButtonBox_ButtonsHaveIcons:
+                return 1
+            return super().styleHint(hint, option, widget, returnData)
+
+    app = QApplication.instance()
+    name = app.style().objectName()
+    app.setStyle(IconStyle(name))
+    yield
+    app.setStyle(name)
+
+
+def test_dialog_buttons_have_no_icons(qtbot, icons_on_buttons):
+    from PySide2.QtWidgets import QDialogButtonBox
+    d = HotkeysDialog()
+    qtbot.addWidget(d)
+    boxes = d.findChildren(QDialogButtonBox)
+    assert boxes
+    for box in boxes:
+        for button in box.buttons():
+            assert button.icon().isNull()
+
+
+def test_settings_dialog_buttons_have_no_icons(qtbot, tmp_path, icons_on_buttons):
+    from PySide2.QtWidgets import QDialogButtonBox
+    dlg = SettingsDialog(storage.Settings(str(tmp_path / "s.json")))
+    qtbot.addWidget(dlg)
+    boxes = dlg.findChildren(QDialogButtonBox)
+    assert boxes
+    for box in boxes:
+        for button in box.buttons():
+            assert button.icon().isNull()

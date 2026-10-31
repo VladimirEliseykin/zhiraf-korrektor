@@ -6,6 +6,7 @@ label and keeps showing what is really stored.
 from typing import List, Tuple
 
 from PySide2.QtCore import Qt
+from PySide2.QtGui import QIcon
 from PySide2.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QPushButton, QVBoxLayout)
 
@@ -43,6 +44,12 @@ def _show_error(label, text):
     label.setVisible(bool(text))
 
 
+def _strip_icons(box):
+    """No platform icons on dialog buttons: on Windows the style adds one that overlaps the Russian caption."""
+    for button in box.buttons():
+        button.setIcon(QIcon())
+
+
 class HotkeysDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,6 +65,7 @@ class HotkeysDialog(QDialog):
         layout.addLayout(grid)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.button(QDialogButtonBox.Close).setText("Закрыть")
+        _strip_icons(buttons)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
@@ -162,6 +170,7 @@ class SettingsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Принять")
         buttons.button(QDialogButtonBox.Cancel).setText("Отмена")
+        _strip_icons(buttons)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
