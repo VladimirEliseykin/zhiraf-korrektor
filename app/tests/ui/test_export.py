@@ -134,3 +134,29 @@ def test_copy_corrected(tmp_path, qapp):
     mime = clipboard.mimeData()
     assert mime.text() == "\n".join(texts(doc, session))
     assert "<b>" in mime.html()
+
+
+def test_pasted_control_characters(tmp_path):
+    import zipfile
+    from xml.etree import ElementTree
+    doc = Document([Paragraph([Span("a&b<c>\x0b\x01\t\nz")])], kind="paste", saved_as="docx")
+    dst = str(tmp_path / "c.docx")
+    export.save_as(doc, ReviewSession([doc.paragraphs[0].text]), dst)
+    with zipfile.ZipFile(dst) as z:
+        ElementTree.fromstring(z.read("word/document.xml"))
+    assert open_document(dst).paragraphs[0].text == "a&b<c>\n\t\nz"
+
+
+def test_unsupported_message_is_shared(tmp_path):
+    doc, session = opened(tmp_path)
+    messages = set()
+    for call in (lambda: export.save_as(doc, session, str(tmp_path / "x.rtf")),
+                 lambda: export.export_paragraphs([], str(tmp_path / "x.rtf"))):
+        with pytest.raises(DocumentError) as e:
+            call()
+        messages.add(str(e.value))
+    assert len(messages) == 1
+
+
+def test_default_font_is_explicit(qapp):
+    assert export._qtext_document([Paragraph([Span("а")])]).defaultFont().family() == "Arial"

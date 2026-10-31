@@ -1,11 +1,10 @@
 """Save the corrected document in any format and copy it out with formatting."""
 import os
-from xml.sax.saxutils import escape
 
 from PySide2.QtGui import QFont, QTextCursor, QTextCharFormat, QTextDocument, QTextDocumentWriter, QPageSize
 from PySide2.QtPrintSupport import QPrinter
 
-from ..documents.docx_format import write_docx_package
+from ..documents.docx_format import text_runs_xml, write_docx_package
 from ..documents.model import DocumentError, SaveReport
 from ..documents.opener import save_document
 from .clipboard import copy_to_clipboard
@@ -15,6 +14,11 @@ FORMATS = [("Документ Word (*.docx)", "docx"), ("Документ ODF (*
            ("Текст (*.txt)", "txt")]
 
 _HEADING_SIZE = {"title": 20, "h1": 18, "h2": 16, "h3": 14}  # points; body text is 11
+
+
+def _unsupported(ext):
+    return DocumentError("Формат «%s» не поддерживается. Можно сохранить как .docx, .odt, .pdf или .txt."
+                         % (("." + ext) if ext else "без расширения"))
 
 
 def _same_file(a, b):
@@ -41,8 +45,7 @@ def save_as(doc, session, dst):
     _check_not_source(doc, dst)
     ext = os.path.splitext(dst)[1].lower().lstrip(".")
     if ext not in [e for _, e in FORMATS]:
-        raise DocumentError("Формат «%s» не поддерживается. Можно сохранить как .docx, .odt, .pdf или .txt."
-                            % (("." + ext) if ext else "без расширения"))
+        raise _unsupported(ext)
     if doc.path and ext == doc.saved_as:
         return save_document(doc, session.replacements(), dst)
     return export_paragraphs(final_paragraphs(doc, session), dst)
@@ -66,7 +69,7 @@ def _docx_body(paragraphs):
         size = _HEADING_SIZE.get(p.style)
         runs = []
         if p.style == "list":
-            runs.append('<w:r><w:t xml:space="preserve">• </w:t></w:r>')
+            runs.append(text_runs_xml("• "))
         for s in p.spans:
             props = ""
             if s.bold or size:
@@ -77,14 +80,14 @@ def _docx_body(paragraphs):
                 props += '<w:u w:val="single"/>'
             if size:
                 props += '<w:sz w:val="%d"/>' % (size * 2)
-            runs.append('<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r>'
-                        % ("<w:rPr>%s</w:rPr>" % props if props else "", escape(s.text)))
+            runs.append(text_runs_xml(s.text, props))
         out.append("<w:p>%s</w:p>" % "".join(runs))
     return "".join(out)
 
 
 def _qtext_document(paragraphs):
     qdoc = QTextDocument()
+    qdoc.setDefaultFont(QFont("Arial", 11))
     cursor = QTextCursor(qdoc)
     for i, p in enumerate(paragraphs):
         if i:
@@ -134,8 +137,7 @@ def export_paragraphs(paragraphs, dst):
     ext = os.path.splitext(dst)[1].lower().lstrip(".")
     writer = _WRITERS.get(ext)
     if writer is None:
-        raise DocumentError("Формат «%s» не поддерживается. Можно сохранить как .docx, .odt, .pdf или .txt."
-                            % (("." + ext) if ext else "без расширения"))
+        raise _unsupported(ext)
     name = os.path.basename(dst)
     part = dst + ".part"
     try:
