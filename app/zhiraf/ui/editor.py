@@ -44,6 +44,7 @@ class ReviewEditor(QTextEdit):
         self._session = None
         self._writing = False          # the program (not the reader) is changing the document
         self._dirty = set()
+        self._pending_repaint = set()
         self.checked_until = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -67,6 +68,7 @@ class ReviewEditor(QTextEdit):
     def load(self, doc, session):
         self._timer.stop()
         self._dirty.clear()
+        self._pending_repaint.clear()
         self._doc, self._session = doc, session
         self.checked_until = None
         self._writing = True
@@ -155,17 +157,16 @@ class ReviewEditor(QTextEdit):
     def repaint_paragraphs(self, indexes: Iterable[int]):
         if self._doc is None:
             return
-        keep = None
         if not self.isReadOnly():
-            keep = self.document().findBlock(self.textCursor().position()).blockNumber()
-        targets = [i for i in sorted(set(indexes)) if i != keep and 0 <= i < self.document().blockCount()]
+            # the reader is typing: any program write would cost them their undo history; apply it on leaving
+            self._pending_repaint.update(indexes)
+            return
+        targets = [i for i in sorted(set(indexes)) if 0 <= i < self.document().blockCount()]
         if not targets:
             return
         cursor = QTextCursor(self.document())
         self._writing = True
         undo = self.isUndoRedoEnabled()
-        # a program write is never an undo step; undoing it later would bring back text the session no longer has,
-        # so in edit mode the reader's older history goes with it
         self.setUndoRedoEnabled(False)
         cursor.beginEditBlock()
         try:
@@ -370,6 +371,8 @@ class ReviewEditor(QTextEdit):
         self.flush_edits()
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
+        pending, self._pending_repaint = self._pending_repaint, set()
+        self.repaint_paragraphs(pending)
         self.edit_mode_changed.emit(False)
 
     def _drop_marks_before_edit(self):

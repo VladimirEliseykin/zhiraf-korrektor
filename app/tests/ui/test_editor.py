@@ -360,8 +360,9 @@ def test_repaint_in_edit_mode_adds_no_undo_step(qtbot):
     editor.setTextCursor(cursor)
     session.accept()
     editor.repaint_paragraphs([1])
-    assert editor.document().findBlockByNumber(1).text() == "второй"
     assert not editor.document().isUndoAvailable()
+    QTest.keyClick(editor, Qt.Key_Escape)
+    assert editor.document().findBlockByNumber(1).text() == "второй"
 
 
 def test_skipped_label_is_drawn_once_per_mark_even_if_split_by_bold(qtbot):
@@ -373,3 +374,29 @@ def test_skipped_label_is_drawn_once_per_mark_even_if_split_by_bold(qtbot):
     editor.repaint_paragraphs([0])
     labels = editor.skipped_labels()
     assert [mark_id for mark_id, _ in labels] == [session.marks[0].id]
+
+
+def test_repaint_during_edit_mode_keeps_undo_history(qtbot):
+    doc, session = make(["первый абзац", "Работа с информации"], editable=True)
+    editor = shown(qtbot, doc, session)
+    editor._enter_edit_mode()
+    cursor = editor.textCursor()
+    cursor.setPosition(0)
+    editor.setTextCursor(cursor)
+    editor.insertPlainText("Да. ")
+    session.add_findings(1, 0, [finding(9, 19, "информацией")])
+    editor.repaint_paragraphs([1])
+    assert editor.document().findBlockByNumber(0).text() == "Да. первый абзац"
+    editor.document().undo()
+    assert editor.document().findBlockByNumber(0).text() == "первый абзац"
+
+
+def test_deferred_repaint_is_applied_on_escape(qtbot):
+    doc, session = make(["первый абзац", "Работа с информации"], editable=True)
+    editor = shown(qtbot, doc, session)
+    editor._enter_edit_mode()
+    session.add_findings(1, 0, [finding(9, 19, "информацией")])
+    editor.repaint_paragraphs([1])
+    assert marked_text(editor.document().findBlockByNumber(1)) == ""
+    QTest.keyClick(editor, Qt.Key_Escape)
+    assert marked_text(editor.document().findBlockByNumber(1)) == "информации"
