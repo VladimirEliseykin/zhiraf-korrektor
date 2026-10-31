@@ -55,6 +55,7 @@ class MarkCard(QFrame):
         self.icon_label = QLabel()
         self.level_label = QLabel()
         self.context_label = QLabel()
+        self.context_label.setTextFormat(Qt.PlainText)   # a document's words must never be read as markup
         self.context_label.setStyleSheet("color: %s;" % c["skipped"])
         head = QHBoxLayout()
         head.setSpacing(6)
@@ -65,6 +66,7 @@ class MarkCard(QFrame):
         self.fix_label = QLabel()
         self.fix_label.setTextFormat(Qt.RichText)
         self.message_label = QLabel()
+        self.message_label.setTextFormat(Qt.PlainText)
         self.message_label.setWordWrap(True)
         self.message_label.setStyleSheet("color: %s;" % c["skipped"])
         self.message_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)

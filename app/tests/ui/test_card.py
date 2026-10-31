@@ -128,3 +128,12 @@ def test_manual_edit_keys_do_not_reach_the_parent(qtbot):
     card.manual_button.click()
     QTest.keyClick(card.manual_edit, Qt.Key_Escape)
     assert parent.keys == []
+
+
+def test_card_document_text_is_plain(qtbot):
+    card = MarkCard()
+    qtbot.addWidget(card)
+    card.show_mark(make_mark(), "a <img src=x> &lt; ", " b")
+    assert "<img src=x> &lt;" in card.context_label.text()
+    assert card.context_label.textFormat() == Qt.PlainText
+    assert card.message_label.textFormat() == Qt.PlainText

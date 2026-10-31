@@ -132,3 +132,31 @@ def test_help_badge_colour_follows_enabled_state(qtbot):
     panel.set_counts({"errors": 0})
     assert _dominant(panel.help_badge) == theme.COLORS["skipped"]
     assert panel.help_badge.parent() is panel.accept_all_button
+
+
+def _badge_pixels(panel, color):
+    from PySide2.QtGui import QColor
+    image = panel.accept_all_button.grab().toImage()
+    want = QColor(color).rgb()
+    return sum(1 for x in range(8, 26) for y in range(image.height())
+               if (image.pixelColor(x, y).rgb() & 0xffffff) == (want & 0xffffff))
+
+
+def test_help_badge_is_visible_with_the_theme_stylesheet(qtbot):
+    panel = StatusPanel()
+    qtbot.addWidget(panel)
+    panel.setStyleSheet(theme.stylesheet())
+    panel.show()
+    panel.set_counts(COUNTS)
+    assert _badge_pixels(panel, theme.COLORS["paper"]) > 0
+    panel.set_counts({"errors": 0})
+    assert _badge_pixels(panel, theme.COLORS["skipped"]) > 0
+
+
+def test_notice_text_is_plain(qtbot):
+    from PySide2.QtCore import Qt
+    bar = NoticeBar()
+    qtbot.addWidget(bar)
+    bar.show_notice("a <img src=x> &lt; b")
+    assert bar.text_label.text() == "a <img src=x> &lt; b"
+    assert bar.text_label.textFormat() == Qt.PlainText

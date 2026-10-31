@@ -108,7 +108,7 @@ class StatusPanel(QWidget):
             layout.addWidget(label)
         layout.addStretch(1)
         self.accept_all_button = QPushButton("Принять все ошибки", self)
-        self.accept_all_button.setStyleSheet("padding-left: 30px;")
+        self.accept_all_button.setStyleSheet("QPushButton { padding-left: 30px; }")
         self.help_badge = QLabel(self.accept_all_button)
         self.help_badge.setPixmap(theme.icon("help", color=theme.COLORS["paper"]).pixmap(18, 18))
         self.help_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -149,6 +149,7 @@ class NoticeBar(QFrame):
                            % (theme.COLORS["moon"], theme.COLORS["check"]))
         layout = QHBoxLayout(self)
         self.text_label = QLabel("", self)
+        self.text_label.setTextFormat(Qt.PlainText)   # the text may carry a document's words or paths
         self.text_label.setWordWrap(True)
         self.action_button = QPushButton(self)
         self.action_button.clicked.connect(self.action_clicked)
