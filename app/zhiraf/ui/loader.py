@@ -48,14 +48,19 @@ class OpenTask(QObject):
         self._thread.started.connect(self._worker.run)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
+        self._worker.done.connect(self._thread.quit)
+        self._worker.failed.connect(self._thread.quit)
+        # if the task is deleted without close() (its window is gone), never destroy a running thread
+        thread, worker = self._thread, self._worker
+        self.destroyed.connect(lambda *_: (thread.quit(), thread.wait(), worker))
         self._thread.start()
 
     def is_running(self):
         return self._thread is not None and self._thread.isRunning()
 
     def cancel(self):
+        """Drop the result; returns at once. The thread is waited for in close()."""
         self._cancelled = True
-        self._stop_thread()
 
     def close(self):
         self._stop_thread()

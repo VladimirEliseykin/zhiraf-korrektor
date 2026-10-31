@@ -1,5 +1,8 @@
 import pytest
+import time
+
 from PySide2.QtCore import QCoreApplication, QElapsedTimer
+from PySide2.QtWidgets import QWidget
 
 from docfactory import P, R, make_docx
 from zhiraf.ui.loader import OpenTask
@@ -61,6 +64,7 @@ def test_cancel_discards_result(tmp_path, qapp):
         QCoreApplication.processEvents()
         qapp.thread().msleep(5)
     assert fired == []
+    task.close()
     assert not task.is_running()
 
 
@@ -69,3 +73,49 @@ def test_txt_cp1251(tmp_path, qapp):
     path.write_bytes("Привет, мир".encode("cp1251"))
     got = run(OpenTask(str(path)), qapp)
     assert got["opened"].paragraphs[0].text == "Привет, мир"
+
+
+def slow_open(monkeypatch, seconds=1.0):
+    import zhiraf.ui.loader as loader
+    monkeypatch.setattr(loader, "open_document", lambda path: time.sleep(seconds))
+
+
+def test_cancel_does_not_block(tmp_path, qapp, monkeypatch):
+    slow_open(monkeypatch)
+    task = OpenTask(str(tmp_path / "a.docx"))
+    task.start()
+    t0 = time.time()
+    task.cancel()
+    assert time.time() - t0 < 0.1
+    task.close()
+    assert not task.is_running()
+
+
+def test_thread_ends_by_itself_after_result(tmp_path, qapp):
+    task = OpenTask(make_docx(tmp_path / "a.docx", P(R("x"))))
+    got = {}
+    task.opened.connect(lambda d: got.setdefault("o", d))
+    task.start()
+    thread = task._thread
+    timer = QElapsedTimer()
+    timer.start()
+    while thread.isRunning() and timer.elapsed() < 5000:
+        QCoreApplication.processEvents()
+        qapp.thread().msleep(5)
+    assert not thread.isRunning()
+    task.close()
+
+
+def test_parent_deleted_during_open(tmp_path, qapp, monkeypatch, capfd):
+    slow_open(monkeypatch, 0.5)
+    parent = QWidget()
+    task = OpenTask(str(tmp_path / "a.docx"), parent)
+    task.start()
+    parent.deleteLater()
+    for _ in range(5):
+        QCoreApplication.processEvents()
+        qapp.thread().msleep(10)
+    time.sleep(0.7)
+    QCoreApplication.processEvents()
+    err = capfd.readouterr()
+    assert "Destroyed while thread is still running" not in err.err + err.out

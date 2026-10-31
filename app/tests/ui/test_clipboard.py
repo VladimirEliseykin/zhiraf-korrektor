@@ -46,6 +46,7 @@ def test_image_is_dropped():
     assert not any(p.has_image for p in doc.paragraphs)
     assert all("passwd" not in p.text and "alert" not in p.text for p in doc.paragraphs)
     assert doc.paragraphs[0].text == "до"
+    assert doc.paragraphs[1].text == "" and not doc.paragraphs[1].has_image
 
 
 def test_empty_buffer_is_none():
@@ -98,3 +99,35 @@ def test_empty_paragraphs_stay():
     qdoc = QTextDocument()
     qdoc.setPlainText("a\n\nb")
     assert [p.text for p in document_from_qtext(qdoc).paragraphs] == ["a", "", "b"]
+
+
+def test_no_resource_is_ever_loaded(monkeypatch):
+    base = []
+    monkeypatch.setattr(QTextDocument, "loadResource", lambda self, t, u: base.append(u) or None)
+    from zhiraf.ui import clipboard
+    seen = []
+    orig = clipboard._NoResourceDocument.loadResource
+    monkeypatch.setattr(clipboard._NoResourceDocument, "loadResource",
+                        lambda self, t, u: seen.append(u) or orig(self, t, u))
+    html = ('<p background="file:///x">a</p><p><span style="background-image:url(file:///y)">b</span></p>'
+            '<link rel=stylesheet href="file:///z"><table background="\\\\host\\share\\a.png">'
+            '<tr><td>c</td></tr></table>')
+    doc = document_from_mime(html_mime(html))
+    assert doc is not None
+    assert base == []
+
+
+def test_loader_override_returns_nothing():
+    from PySide2.QtCore import QUrl
+    from zhiraf.ui.clipboard import _NoResourceDocument
+    assert not _NoResourceDocument().loadResource(2, QUrl("file:///etc/passwd"))
+
+
+def test_unclosed_script_body_dropped():
+    doc = document_from_mime(html_mime("<p>до</p><script>alert(1) SECRET"))
+    assert "SECRET" not in "".join(p.text for p in doc.paragraphs)
+
+
+def test_img_with_gt_in_attribute():
+    doc = document_from_mime(html_mime('<p>до</p><img alt=">" src=x>'))
+    assert [p.text for p in doc.paragraphs] == ["до"] or "".join(p.text for p in doc.paragraphs) == "до"

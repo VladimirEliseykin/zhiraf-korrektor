@@ -12,7 +12,24 @@ from .blockfmt import spans_from_block
 __all__ = ["spans_from_block", "document_from_mime", "document_from_qtext", "paragraphs_to_html",
            "copy_to_clipboard"]
 
-_UNSAFE = re.compile(r"<script\b.*?</script\s*>|<script\b[^>]*>|<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_ATTRS = r"""(?:[^>"']|"[^"]*"|'[^']*')*"""
+_UNSAFE = re.compile(r"<script\b.*?</script\s*>|<script\b.*\Z|<img\b%s>?" % _ATTRS, re.IGNORECASE | re.DOTALL)
+
+
+class _NoResourceDocument(QTextDocument):
+    """Pasted HTML may point at files or network shares (a leak on Windows): load nothing, ever."""
+
+    def loadResource(self, type, url):
+        return None
+
+
+def _strip_unsafe(html):
+    # cosmetic only: the real protection is _NoResourceDocument
+    while True:
+        cleaned = _UNSAFE.sub("", html)
+        if cleaned == html:
+            return html
+        html = cleaned
 _HEADINGS = {1: "h1", 2: "h2", 3: "h3"}
 
 
@@ -23,8 +40,8 @@ def _paste_document(paragraphs):
 def document_from_mime(mime):
     # type: (QMimeData) -> Optional[Document]
     if mime.hasHtml():
-        qdoc = QTextDocument()
-        qdoc.setHtml(_UNSAFE.sub("", mime.html()))
+        qdoc = _NoResourceDocument()
+        qdoc.setHtml(_strip_unsafe(mime.html()))
         if qdoc.toPlainText().strip():
             return _paste_document(document_from_qtext(qdoc).paragraphs)
     if mime.hasText() and mime.text().strip():
