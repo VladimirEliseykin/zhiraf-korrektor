@@ -73,7 +73,8 @@ def test_pth_is_four_crlf_lines(world):
 
 
 def test_qt_conf_next_to_python_exe(world):
-    # Qt 5.15 finds no plugins when the folder path has Cyrillic letters (found in the Windows 7 VM):
+    # Qt 5.15 finds no plugins when the folder path has Cyrillic letters (Windows 7 VM: an ASCII path with a space
+    # works, a Cyrillic path without a space fails):
     # a qt.conf next to python.exe, the application directory, points it at the PySide2 folder.
     files, repo, models, dist = world
     lay_out(dist, files, repo, models)

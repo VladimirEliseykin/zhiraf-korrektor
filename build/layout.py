@@ -119,8 +119,9 @@ def lay_out(dist, files, repo, models, link_models=True):
     with open(os.path.join(py, "python37._pth"), "wb") as f:
         f.write(("\r\n".join(PTH_LINES) + "\r\n").encode("ascii"))
 
-    # Qt 5.15 derives its plugin folder from the DLL path and finds nothing when that path has Cyrillic letters;
-    # a qt.conf in the application directory (next to pythonw.exe) names it explicitly
+    # Qt 5.15 derives its plugin folder from the DLL path and finds nothing when that path has Cyrillic letters
+    # (VM check without qt.conf: an ASCII path with a space works, a Cyrillic path without a space fails, so spaces
+    # are not the cause); a qt.conf in the application directory (next to pythonw.exe) names it explicitly
     with open(os.path.join(py, "qt.conf"), "wb") as f:
         f.write(b"[Paths]\r\nPrefix = Lib/site-packages/PySide2\r\n")
 
