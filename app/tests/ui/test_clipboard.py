@@ -1,5 +1,5 @@
 from PySide2.QtCore import QMimeData
-from PySide2.QtGui import QTextCursor, QTextDocument
+from PySide2.QtGui import QImage, QTextCursor, QTextDocument
 
 from zhiraf.documents.model import Paragraph, Span
 from zhiraf.ui.clipboard import copy_to_clipboard, document_from_mime, document_from_qtext, paragraphs_to_html
@@ -101,20 +101,26 @@ def test_empty_paragraphs_stay():
     assert [p.text for p in document_from_qtext(qdoc).paragraphs] == ["a", "", "b"]
 
 
-def test_no_resource_is_ever_loaded(monkeypatch):
-    base = []
-    monkeypatch.setattr(QTextDocument, "loadResource", lambda self, t, u: base.append(u) or None)
+def test_no_resource_is_ever_loaded(monkeypatch, tmp_path):
     from zhiraf.ui import clipboard
-    seen = []
+    calls = []
     orig = clipboard._NoResourceDocument.loadResource
-    monkeypatch.setattr(clipboard._NoResourceDocument, "loadResource",
-                        lambda self, t, u: seen.append(u) or orig(self, t, u))
+
+    def spy(self, type, url):
+        result = orig(self, type, url)
+        calls.append((url.toString(), result))
+        return result
+    monkeypatch.setattr(clipboard._NoResourceDocument, "loadResource", spy)
+    real = tmp_path / "t.png"  # a file that exists: the base class WOULD load it
+    QImage(2, 2, QImage.Format_RGB32).save(str(real))
     html = ('<p background="file:///x">a</p><p><span style="background-image:url(file:///y)">b</span></p>'
-            '<link rel=stylesheet href="file:///z"><table background="\\\\host\\share\\a.png">'
-            '<tr><td>c</td></tr></table>')
+            '<link rel=stylesheet href="file:///z"><table background="%s">'
+            '<tr><td>c</td></tr></table>' % real.as_uri() +
+            '<table background="\\\\host\\share\\a.png"><tr><td>d</td></tr></table>')
     doc = document_from_mime(html_mime(html))
     assert doc is not None
-    assert base == []
+    assert calls, "Qt never asked the document for a resource: the test proves nothing"
+    assert all(result is None for _, result in calls)
 
 
 def test_loader_override_returns_nothing():
