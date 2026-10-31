@@ -6,7 +6,7 @@ mc:Ignorable prefixes no longer match their declarations.
 import os
 import re
 import zipfile
-from xml.sax.saxutils import escape
+from html import escape
 
 from lxml import etree
 
@@ -257,7 +257,7 @@ def text_runs_xml(text, props="", flatten=False):
             out.append("<w:r>%s<w:tab/></w:r>" % rpr)
         elif piece:
             piece = _XML_INVALID.sub("", piece)
-            out.append('<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r>' % (rpr, escape(piece)))
+            out.append('<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r>' % (rpr, escape(piece, quote=False)))
     return "".join(out)
 
 
