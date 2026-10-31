@@ -12,7 +12,8 @@ import time
 import psutil
 
 APP_NAME = "Жираф.Корректор"
-DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True}
+DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True,
+                    "shortcut_offered": False}
 MAX_RECENT = 20
 
 

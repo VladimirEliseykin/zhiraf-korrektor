@@ -6,12 +6,12 @@ import os
 import sys
 import time
 
-from PySide2.QtCore import QLockFile
+from PySide2.QtCore import QLockFile, QTimer
 from PySide2.QtWidgets import QApplication, QMessageBox
 
 from .. import missing_models, models_dir, storage
 from ..worker import safe_error_detail
-from . import theme
+from . import shortcut, theme
 from .main_window import MainWindow
 
 TITLE = "Жираф.Корректор"
@@ -107,6 +107,8 @@ def main(argv=None):
         paths = [a for a in argv[1:] if not a.startswith("-")]
         if paths:
             window.open_path(paths[0])
+        # after the window is up; a closed window turns the offer into a no-op
+        QTimer.singleShot(0, lambda: shortcut.offer_shortcut(window, window.settings))
         code = app.exec_()
         if window.hard_exit:
             lock.unlock()
