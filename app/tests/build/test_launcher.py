@@ -1,4 +1,5 @@
 import os
+import shutil
 import struct
 import subprocess
 
@@ -19,8 +20,9 @@ SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 @pytest.fixture(scope="module")
 def qapp():
-    from PySide2.QtGui import QGuiApplication
-    return QGuiApplication.instance() or QGuiApplication([])
+    # a QApplication, never a bare QGuiApplication: later tests/ui tests need the widgets one
+    from PySide2.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
 
 
 def test_make_icon_has_seven_sizes(tmp_path, qapp):
@@ -55,8 +57,11 @@ CASES = [
 
 @pytest.fixture(scope="module")
 def parser_bin(tmp_path_factory):
+    clang = shutil.which("clang")
+    if clang is None:
+        pytest.skip("host clang is not installed")
     out = str(tmp_path_factory.mktemp("lt") / "args_test")
-    r = subprocess.run(["/usr/bin/clang", "-DLAUNCHER_TEST", "-Wall", "-Werror", "-o", out, LAUNCHER_C],
+    r = subprocess.run([clang, "-DLAUNCHER_TEST", "-Wall", "-Werror", "-o", out, LAUNCHER_C],
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     return out
