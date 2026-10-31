@@ -72,6 +72,15 @@ def test_pth_is_four_crlf_lines(world):
         assert f.read() == b"python37.zip\r\n.\r\nLib\\site-packages\r\n..\\app\r\n"
 
 
+def test_qt_conf_next_to_python_exe(world):
+    # Qt 5.15 finds no plugins when the folder path has Cyrillic letters (found in the Windows 7 VM):
+    # a qt.conf next to python.exe, the application directory, points it at the PySide2 folder.
+    files, repo, models, dist = world
+    lay_out(dist, files, repo, models)
+    with open(os.path.join(dist, "python", "qt.conf"), "rb") as f:
+        assert f.read() == b"[Paths]\r\nPrefix = Lib/site-packages/PySide2\r\n"
+
+
 def test_embed_and_wheels(world):
     files, repo, models, dist = world
     lay_out(dist, files, repo, models)
