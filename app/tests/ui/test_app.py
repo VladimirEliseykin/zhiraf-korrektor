@@ -84,7 +84,7 @@ def test_main_second_copy_gets_the_message_and_0(qtbot, monkeypatch, capfd):
 
 def test_close_is_bounded_when_a_retiring_open_hangs(qtbot, full_models_dir, tmp_path, monkeypatch):
     release = threading.Event()
-    monkeypatch.setattr(loader, "open_document", lambda path: release.wait(10))
+    monkeypatch.setattr(loader, "open_document", lambda path: release.wait(10) and None or type("D", (), {"source": None})())
     w = MainWindow(full_models_dir, factories="fakes:make_factories")
     qtbot.addWidget(w)
     w.show()
