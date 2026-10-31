@@ -29,3 +29,11 @@ def models_dir(tmp_path):
     folder.mkdir()
     (folder / "vocab.tsv").write_text("информация\t10\nдокумент\t10\n", encoding="utf-8")
     return str(folder)
+
+
+@pytest.fixture
+def full_models_dir(models_dir):
+    """A models folder that looks complete (the fake models need no files, the window only checks they exist)."""
+    for name in ("sage", "commas", "forms", "spell"):
+        os.makedirs(os.path.join(models_dir, name), exist_ok=True)
+    return models_dir
