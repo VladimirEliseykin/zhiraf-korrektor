@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from docfactory import P, R, make_docx
+from docfactory import P, R, make_docx, table
 from zhiraf import cli, models_dir as real_models_dir, storage
 from zhiraf.documents.docx_format import read_docx
 
@@ -122,3 +122,19 @@ def test_progress_line_never_says_zero_minutes(capsys):
             return 0.9
     cli._progress_line(HalfMinute())
     assert "осталось ≈ 1 мин" in capsys.readouterr().err
+
+
+def test_check_file_passes_the_document_structure(tmp_path, models_dir, monkeypatch):
+    seen = {}
+    real = cli.CheckJob
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(cli, "CheckJob", spy)
+    src = make_docx(tmp_path / "a.docx", P(R("Обычный абзац.")), P(R("Раздел"), style="Heading1"),
+                    table([[P(R("ячейка"))]]))
+    result = cli.check_file(src, models_dir, accept_errors=True, factories="fakes:make_factories")
+    assert result["saved"]
+    assert seen["structure"] == seen["context_structure"]
+    assert seen["structure"][:2] == ["body", "heading"] and "table" in seen["structure"]

@@ -119,3 +119,49 @@ def test_sage_confirms_a_half_sure_comma_deletion_of_the_ensemble(models_dir):
     assert got["commas"] == []                                   # 0.6 is below the sure deletion threshold: not shown
     assert got["sage"] == [("SAGE_COMMA_DEL", "error", "")]
     assert run({})["sage"] == []                                 # SAGE keeps the comma: nothing shown at all
+
+
+CASE = ["Договор подписан сторонами.", "Пункты договора согласованы.", "Срок договора истёк.",
+        "Подписан Договор сегодня."]
+
+
+def stage_findings(c, sentences, stage, **kw):
+    return [(i, [(f["rule"], f["start"], f["end"]) for f in items])
+            for st, i, items in c.stream(sentences, **kw) if st == stage]
+
+
+def test_structure_changes_nothing_for_model_stages(models_dir):
+    kinds = ["body", "heading", "table", "list"]
+    for stage in ("commas", "forms", "spell", "sage"):
+        c = checker(models_dir)
+        assert stage_findings(c, SENTENCES, stage, structure=kinds) == stage_findings(c, SENTENCES, stage)
+
+
+def test_rules_skip_capital_mid_in_headings(models_dir):
+    c = checker(models_dir, strict=True)
+    plain = stage_findings(c, CASE, "rules")
+    assert any(r == "RULE_CAPITAL_MID" for r, _, _ in plain[3][1])
+    as_body = stage_findings(c, CASE, "rules", structure=["body"] * 4)
+    assert as_body == plain
+    as_heading = stage_findings(c, CASE, "rules", structure=["body"] * 3 + ["heading"])
+    assert not any(r == "RULE_CAPITAL_MID" for r, _, _ in as_heading[3][1])
+
+
+def test_rules_take_kinds_of_the_context_when_one_is_given(models_dir, monkeypatch):
+    from spellcheck import rules
+    made = []
+    real = rules.DocContext
+
+    def spy(*args, **kwargs):
+        made.append(args)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(rules, "DocContext", spy)
+    c = checker(models_dir, strict=True)
+    # a recheck of the last sentence only: the context kinds are parallel to the context, the sentence kind to the sentence
+    kinds = ["body"] * 3 + ["heading"]
+    got = stage_findings(c, CASE[3:], "rules", context=CASE, structure=["heading"], context_structure=kinds)
+    assert made[-1][2] == kinds and not any(r == "RULE_CAPITAL_MID" for r, _, _ in got[0][1])
+    got = stage_findings(c, CASE[3:], "rules", context=CASE, structure=["body"], context_structure=kinds)
+    assert any(r == "RULE_CAPITAL_MID" for r, _, _ in got[0][1])
+    stage_findings(c, CASE, "rules", structure=kinds)
+    assert made[-1][2] == kinds

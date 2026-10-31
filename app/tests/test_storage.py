@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from zhiraf import storage
 
 
@@ -85,7 +87,7 @@ def test_clean_tmp_removes_leftovers():
 
 def test_folders_follow_profile_override(zhiraf_home):
     assert storage.data_dir() == str(zhiraf_home)
-    assert storage.tmp_dir() == os.path.join(str(zhiraf_home), "tmp")
+    assert storage.tmp_dir() == os.path.join(str(zhiraf_home), "tmp", str(os.getpid()))
 
 
 def test_dictionary_loads_cp1251_encoded_file(tmp_path):
@@ -138,3 +140,99 @@ def test_recent_with_invalid_entries_loads_valid_ones(tmp_path):
     # touch() should work after loading corrupted file
     r.touch(str(tmp_path / "c.docx"), {"fixed": 5})
     assert len(r.items()) == 3
+
+
+def blocked_dictionary(tmp_path):
+    path = tmp_path / "словарь.txt"
+    path.mkdir()                      # a folder where the file should be: every write fails
+    return storage.Dictionary(str(path))
+
+
+def test_dictionary_add_rolls_back_when_write_fails(tmp_path):
+    d = blocked_dictionary(tmp_path)
+    with pytest.raises(OSError):
+        d.add("Жирафик")
+    assert "Жирафик" not in d and len(d) == 0
+
+
+def test_dictionary_remove_rolls_back_when_write_fails(tmp_path):
+    path = tmp_path / "словарь.txt"
+    path.write_text("Жирафик\n", encoding="utf-8")
+    d = storage.Dictionary(str(path))
+    path.unlink()
+    path.mkdir()
+    with pytest.raises(OSError):
+        d.remove("Жирафик")
+    assert "Жирафик" in d
+
+
+def test_dictionary_import_rolls_back_when_write_fails(tmp_path):
+    src = tmp_path / "чужой.txt"
+    src.write_text("Жирафик\n", encoding="utf-8")
+    d = blocked_dictionary(tmp_path)
+    with pytest.raises(OSError):
+        d.import_from(str(src))
+    assert len(d) == 0
+
+
+def test_settings_set_rolls_back_when_write_fails(tmp_path):
+    bad = tmp_path / "настройки.json"
+    bad.mkdir()
+    s = storage.Settings(str(bad))
+    with pytest.raises(OSError):
+        s.set("strict_mode", True)
+    assert s["strict_mode"] is False
+
+
+def test_failed_write_leaves_no_tmp_file(tmp_path):
+    target = tmp_path / "папка.txt"
+    target.mkdir()                    # os.replace onto a folder fails after the .tmp is written
+    with pytest.raises(OSError):
+        storage._write_atomic(str(target), "текст")
+    assert not os.path.exists(str(target) + ".tmp")
+
+
+def test_tmp_dir_is_per_process_and_clean_keeps_a_live_neighbour(zhiraf_home):
+    mine = storage.tmp_dir()
+    assert os.path.basename(mine) == str(os.getpid())
+    neighbour = os.path.join(os.path.dirname(mine), str(os.getppid()))   # a live process
+    dead = os.path.join(os.path.dirname(mine), "999999999")
+    for p in (neighbour, dead):
+        os.makedirs(p, exist_ok=True)
+    storage.clean_tmp()
+    assert os.path.isdir(neighbour) and not os.path.exists(dead) and os.path.isdir(storage.tmp_dir())
+
+
+def test_recent_normalises_malformed_entries(tmp_path):
+    import json
+    raw = [
+        {"path": "/a.docx", "opened_at": "yesterday", "stats": "oops"},
+        {"path": "/b.docx", "opened_at": 1e300, "stats": {"fixed": 2, "skipped": -1, "handled": None, "total": "5", "x": 1}},
+        {"path": "/c.docx", "opened_at": 1700000000, "stats": {"fixed": 1, "skipped": 2, "handled": 3, "total": 4}},
+        {"path": "/d.docx", "opened_at": float("nan"), "stats": [1]},
+        {"path": 5}, "junk",
+    ]
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    items = storage.Recent(storage.Settings(), str(p)).items()
+    assert [i["path"] for i in items] == ["/a.docx", "/b.docx", "/c.docx", "/d.docx"]
+    assert items[0]["opened_at"] is None and items[0]["stats"] == {}
+    assert items[1]["opened_at"] is None and items[1]["stats"] == {"fixed": 2}
+    assert items[2]["opened_at"] == 1700000000.0
+    assert items[2]["stats"] == {"fixed": 1, "skipped": 2, "handled": 3, "total": 4}
+    assert items[3]["opened_at"] is None and items[3]["stats"] == {}
+
+
+def test_recent_touch_cleans_stats(tmp_path):
+    r = storage.Recent(storage.Settings(), str(tmp_path / "r.json"))
+    r.touch(str(tmp_path / "a.docx"), {"fixed": "x", "handled": None, "total": True, "skipped": 2})
+    assert r.items()[0]["stats"] == {"skipped": 2}
+    assert storage.Recent(storage.Settings(), str(tmp_path / "r.json")).items()[0]["stats"] == {"skipped": 2}
+
+
+def test_recent_load_survives_huge_and_bool_time(tmp_path):
+    p = tmp_path / "r.json"
+    p.write_text('[{"path": "/a", "opened_at": 1%s}, {"path": "/b", "opened_at": true},'
+                 ' {"path": "/c", "opened_at": -5}]' % ("0" * 400), encoding="utf-8")
+    items = storage.Recent(storage.Settings(), str(p)).items()
+    assert [i["opened_at"] for i in items] == [None, None, None]

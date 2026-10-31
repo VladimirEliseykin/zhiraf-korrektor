@@ -1,3 +1,5 @@
+import pytest
+
 from zhiraf.review import ACCEPTED, DICTIONARY, MANUAL, OPEN, SKIPPED, ReviewSession
 from zhiraf.storage import Dictionary
 
@@ -148,6 +150,23 @@ def test_undo_of_add_to_dictionary_removes_the_word(tmp_path):
     assert "испдн" not in d and [m.status for m in s.marks] == [OPEN, OPEN]
 
 
+def test_undo_keeps_its_group_when_the_dictionary_write_fails(tmp_path, monkeypatch):
+    d = Dictionary(str(tmp_path / "d.txt"))
+    s = ReviewSession(["Слово ИСПДн тут"], d)
+    s.add_findings(0, 0, [f(6, 11, None, level="check", rule="RULE_TYPO")])
+    s.add_to_dictionary()
+
+    def broken(word):
+        raise OSError("read-only")
+    monkeypatch.setattr(d, "remove", broken)
+    with pytest.raises(OSError):
+        s.undo()
+    assert s.marks[0].status == DICTIONARY
+    monkeypatch.undo()
+    s.undo()
+    assert "испдн" not in d and s.marks[0].status == OPEN
+
+
 def test_findings_of_an_old_paragraph_version_are_dropped():
     s = ReviewSession(["Так же"])
     assert s.version(0) == 0
@@ -193,3 +212,32 @@ def test_pop_removed_reports_marks_evicted_by_a_stronger_finding():
     assert s.marks == strong and s.current is strong[0]
     s.add_findings(0, 0, [f(0, 6, "Также", level="check", rule="MODEL_FORM")])  # weaker: nothing removed
     assert s.pop_removed() == []
+
+
+def test_hidden_checks_are_skipped_by_navigation_and_select():
+    s = ReviewSession(["aaa bbb ccc"])
+    s.add_findings(0, 0, [f(0, 3, "x"), f(4, 7, None, level="check", rule="RULE_TYPO"), f(8, 11, "y")])
+    check = next(m for m in s.marks if m.level == "check")
+    s.select(check.id)
+    s.set_show_checks(False)
+    assert s.current is not check and s.current.level == "error"
+    assert [m.level for m in s.open_marks()] == ["error", "error"]
+    assert s.select(check.id) is check and s.current is not check
+    for _ in range(3):
+        assert s.go_next().level == "error"
+        assert s.go_prev().level == "error"
+    assert s.counts()["checks"] == 1
+    s.set_show_checks(True)
+    assert s.select(check.id) is check and s.current is check
+
+
+def test_undo_does_not_make_a_hidden_check_current():
+    s = ReviewSession(["aaa bbb ccc"])
+    s.add_findings(0, 0, [f(0, 3, "x"), f(4, 7, None, level="check", rule="RULE_TYPO"), f(8, 11, "y")])
+    check = next(m for m in s.marks if m.level == "check")
+    s.select(check.id)
+    s.skip()
+    s.set_show_checks(False)
+    s.undo()
+    assert check.status == "open" and s.current is not check
+    assert s.current is not None and s.current.level == "error"

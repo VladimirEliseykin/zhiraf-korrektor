@@ -50,3 +50,22 @@ def plan_sentences(paragraphs):
             sentences.append(text[start:end])
             where.append((index, start))
     return sentences, where
+
+
+HEADING_STYLES = ("title", "h1", "h2", "h3")
+
+
+def sentence_kinds(paragraphs, where):
+    """The kind of each planned sentence (body / heading / table / list) from the paragraph it came from."""
+    kinds = []
+    for index, _ in where:
+        p = paragraphs[index]
+        if p.table:
+            kinds.append("table")
+        elif p.style in HEADING_STYLES:
+            kinds.append("heading")
+        elif p.style == "list":
+            kinds.append("list")
+        else:
+            kinds.append("body")
+    return kinds

@@ -437,11 +437,17 @@ class Checker:
             parts.append(found)
         return parts
 
-    def _stage_function(self, stage, sentences, context, prepared=None, first=0, should_stop=None, on_step=None):
+    def _stage_function(self, stage, sentences, context, prepared=None, first=0, should_stop=None, on_step=None,
+                        structure=None, context_structure=None):
         """check(index, body) -> findings; loads the stage model(s). None when should_stop ended an earlier pass."""
         if stage == "rules":
-            ctx = rules.DocContext(context if context is not None else sentences, self.lexicon)
-            return lambda i, body: [dict(f, rule="RULE_" + f["rule"]) for f in rules.check(body, self.lexicon, ctx)]
+            if context is not None:
+                kinds = context_structure  # parallel to the context, never to the (maybe partial) sentences
+            else:
+                kinds = structure
+            ctx = rules.DocContext(context if context is not None else sentences, self.lexicon, kinds)
+            return lambda i, body: [dict(f, rule="RULE_" + f["rule"]) for f in
+                                    rules.check(body, self.lexicon, ctx, None if structure is None else structure[i])]
         made = self.factories[stage]
         makers = list(made) if isinstance(made, (list, tuple)) else [made]
         if stage == "spell":
@@ -483,7 +489,8 @@ class Checker:
             return to_findings(body, preds)
         return check
 
-    def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None, on_step=None):
+    def stream(self, sentences, context=None, stages=STAGES, should_stop=None, start=None, on_step=None,
+               structure=None, context_structure=None):
         """Yield (stage, sentence index, findings) for every sentence and stage as soon as it is checked.
 
         Stages run one after another and load their model only for their own pass, so at most one
@@ -508,7 +515,8 @@ class Checker:
             if first >= len(prepared):
                 continue  # nothing to check here: do not load a model for it
             started = time.perf_counter()
-            check = self._stage_function(stage, sentences, context, prepared, first, should_stop, on_step)
+            check = self._stage_function(stage, sentences, context, prepared, first, should_stop, on_step, structure,
+                                         context_structure)
             if check is None:
                 self.stopped = True
                 return
@@ -531,10 +539,10 @@ class Checker:
             mark_memory(stage + ":released")
             self._stage(stage, started)
 
-    def check_document(self, sentences, context=None, stages=STAGES):
+    def check_document(self, sentences, context=None, stages=STAGES, structure=None):
         """Merged findings for each sentence (evaluation, batch runs)."""
         found = [[] for _ in sentences]
-        for _, i, items in self.stream(sentences, context, stages):
+        for _, i, items in self.stream(sentences, context, stages, structure=structure):
             found[i].extend(items)
         return [merge(f) for f in found]
 

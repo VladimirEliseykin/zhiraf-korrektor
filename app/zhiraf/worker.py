@@ -39,7 +39,8 @@ def _is_memory_error(exc):
     return "alloc" in text or "out of memory" in text
 
 
-def _run(models_dir, sentences, context, stages, strict, threads, factories_spec, out, stop, start=None):
+def _run(models_dir, sentences, context, stages, strict, threads, factories_spec, out, stop, start=None,
+         structure=None, context_structure=None):
     try:
         import zhiraf  # noqa: F401  (puts the engine on sys.path in this process)
         from spellcheck.checker import Checker
@@ -47,7 +48,8 @@ def _run(models_dir, sentences, context, stages, strict, threads, factories_spec
         checker = Checker(models_dir, threads, strict=strict, factories=factories)
         out.send(("plan", {stage: checker.passes(stage) for stage in stages}))  # model passes per stage (progress)
         for stage, index, items in checker.stream(sentences, context, stages, should_stop=stop.is_set, start=start,
-                                                  on_step=lambda stage: out.send(("step", stage))):
+                                                  on_step=lambda stage: out.send(("step", stage)),
+                                                  structure=structure, context_structure=context_structure):
             out.send(("findings", stage, index, items))
         out.send(("done", checker.stats, checker.stopped))
     except Exception as exc:
@@ -59,13 +61,15 @@ def _run(models_dir, sentences, context, stages, strict, threads, factories_spec
 
 class CheckJob:
     def __init__(self, models_dir, sentences, context=None, stages=None, strict=False, threads=2, factories=None,
-                 resume_from=None):
+                 resume_from=None, structure=None, context_structure=None):
         self.stages = tuple(stages or STAGES)
         ctx = multiprocessing.get_context("spawn")
         self._reader, self._writer = ctx.Pipe(duplex=False)
         self._stop = ctx.Event()
         args = (models_dir, list(sentences), None if context is None else list(context), self.stages, strict,
-                threads, factories, self._writer, self._stop, resume_from)
+                threads, factories, self._writer, self._stop, resume_from,
+                None if structure is None else list(structure),
+                None if context_structure is None else list(context_structure))
         self._process = ctx.Process(target=_run, args=args, daemon=True)
         self.progress = Progress(len(sentences), self.stages, STAGE_COST)
         if resume_from is not None:

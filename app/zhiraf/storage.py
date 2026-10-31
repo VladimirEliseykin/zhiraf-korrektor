@@ -3,10 +3,13 @@
 Never document text: the dictionary holds single words, the recent list file paths and counters.
 """
 import json
+import math
 import os
 import shutil
 import sys
 import time
+
+import psutil
 
 APP_NAME = "Жираф.Корректор"
 DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True}
@@ -32,22 +35,41 @@ def data_dir():
 
 
 def tmp_dir():
-    path = _base("tmp")
+    """This process's own temp folder: two running copies never share files."""
+    path = os.path.join(_base("tmp"), str(os.getpid()))
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def clean_tmp():
-    """Temp copies of documents must not outlive the program, also after a crash."""
-    shutil.rmtree(_base("tmp"), ignore_errors=True)
+    """Temp copies of documents must not outlive the program, also after a crash.
+
+    Removes the folders of dead processes and our own old one; a live neighbour keeps its files.
+    """
+    root = _base("tmp")
+    mine = str(os.getpid())
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    for name in names:
+        if name == mine or not name.isdigit() or not psutil.pid_exists(int(name)):
+            shutil.rmtree(os.path.join(root, name), ignore_errors=True)
     tmp_dir()
 
 
 def _write_atomic(path, text):
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _read_json(path, default):
@@ -99,22 +121,31 @@ class Dictionary:
         return sorted(self._words.values(), key=str.lower)
 
     def add(self, word):
+        before = dict(self._words)
         self._remember(word.strip())
-        self._save()
+        self._save_or_restore(before)
 
     def remove(self, word):
+        before = dict(self._words)
         self._words.pop(word.strip().lower(), None)
-        self._save()
+        self._save_or_restore(before)
 
     def export(self, path):
         _write_atomic(path, "\n".join(self.words()) + "\n")
 
     def import_from(self, path):
-        before = len(self._words)
+        saved = dict(self._words)
         for line in _read_text_lines(path):
             self._remember(line.strip())
-        self._save()
-        return len(self._words) - before
+        self._save_or_restore(saved)
+        return len(self._words) - len(saved)
+
+    def _save_or_restore(self, before):
+        try:
+            self._save()
+        except OSError:
+            self._words = before  # memory must match the file on disk
+            raise
 
     def _save(self):
         _write_atomic(self.path, "\n".join(self.words()) + "\n")
@@ -134,8 +165,35 @@ class Settings:
     def set(self, key, value):
         if key not in DEFAULT_SETTINGS:
             raise KeyError(key)
+        old = self._values[key]
         self._values[key] = value
-        _write_atomic(self.path, json.dumps(self._values, ensure_ascii=False, indent=1))
+        try:
+            _write_atomic(self.path, json.dumps(self._values, ensure_ascii=False, indent=1))
+        except OSError:
+            self._values[key] = old
+            raise
+
+
+def _clean_recent(item):
+    """Normalise one stored entry: finite float time or None, stats with non-negative int counters only."""
+    opened = item.get("opened_at")
+    try:
+        if isinstance(opened, bool) or not isinstance(opened, (int, float)):
+            raise TypeError
+        opened = float(opened)
+        if not math.isfinite(opened) or not 0 <= opened < 4e9:
+            raise ValueError
+        time.localtime(opened)
+    except (TypeError, ValueError, OverflowError, OSError):
+        opened = None
+    raw = item.get("stats")
+    stats = {}
+    if isinstance(raw, dict):
+        for key in ("fixed", "skipped", "handled", "total"):
+            value = raw.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                stats[key] = value
+    return {"path": item["path"], "opened_at": None if opened is None else float(opened), "stats": stats}
 
 
 class Recent:
@@ -146,7 +204,7 @@ class Recent:
         self.path = path or os.path.join(data_dir(), "недавние.json")
         items = _read_json(self.path, [])
         # Keep only valid items: must be dicts with a string "path" field
-        self._items = [i for i in (items if isinstance(items, list) else [])
+        self._items = [_clean_recent(i) for i in (items if isinstance(items, list) else [])
                        if isinstance(i, dict) and isinstance(i.get("path"), str)]
 
     def items(self):
@@ -159,7 +217,9 @@ class Recent:
         old = [i for i in self._items if os.path.normcase(os.path.abspath(i["path"])) == key]
         self._items = [i for i in self._items if i not in old]
         kept = old[0].get("stats", {}) if old else {}
-        self._items.insert(0, {"path": os.path.abspath(path), "opened_at": time.time(), "stats": stats or kept})
+        entry = _clean_recent({"path": os.path.abspath(path), "opened_at": time.time(),
+                               "stats": _clean_recent({"path": "", "stats": stats})["stats"] or kept})
+        self._items.insert(0, entry)
         del self._items[MAX_RECENT:]
         self._save()
 

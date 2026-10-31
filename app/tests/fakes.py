@@ -1,4 +1,5 @@
 """Stand-ins for the neural models: fast, deterministic, no model files."""
+import os
 import time
 
 from spellcheck.text import words_of
@@ -91,4 +92,16 @@ def _oom():
 def make_oom_factories():
     factories = make_factories()
     factories["commas"] = _oom
+    return factories
+
+
+class _DyingModel:
+    def predict(self, text):
+        os._exit(1)  # a real process death (as the OS does when memory runs out), not an exception
+
+
+def make_crashing_factories():
+    """The forms model kills the child process: the commas stage has already delivered its findings."""
+    factories = make_factories()
+    factories["forms"] = _DyingModel
     return factories

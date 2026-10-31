@@ -7,6 +7,7 @@ import zhiraf
 
 FORBIDDEN = {"socket", "ssl", "urllib", "urllib2", "http", "httplib", "ftplib", "smtplib", "poplib", "imaplib",
              "telnetlib", "xmlrpc", "requests", "asyncio", "websocket", "websockets", "selectors"}
+FORBIDDEN_QT = ("QtNetwork", "QtWebEngine", "QtQml", "QtMultimedia", "QLocalServer", "QTcpSocket")
 SOURCE_DIRS = [os.path.join(zhiraf.ROOT, "app", "zhiraf"), os.path.join(zhiraf.ENGINE_DIR, "spellcheck")]
 
 
@@ -35,7 +36,7 @@ def test_sources_import_no_network_modules():
     bad = []
     for path in python_files():
         for name in imported_names(path):
-            if name.split(".")[0] in FORBIDDEN or "QtNetwork" in name:
+            if name.split(".")[0] in FORBIDDEN or any(q in name for q in FORBIDDEN_QT):
                 bad.append((os.path.relpath(path, zhiraf.ROOT), name))
     assert bad == []
 
@@ -45,6 +46,16 @@ def test_forbidden_import_is_caught(tmp_path):
     sample.write_text("import socket\nfrom urllib import request\n", encoding="utf-8")
     names = set(imported_names(str(sample)))
     assert "socket" in names and "urllib.request" in names
+
+
+def test_forbidden_qt_names_are_caught(tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text("from PySide2.QtNetwork import QTcpSocket\nfrom PySide2 import QtWebEngineWidgets\n"
+                      "from PySide2.QtCore import QLocalServer\n", encoding="utf-8")
+    names = set(imported_names(str(sample)))
+    assert all(any(q in n for q in FORBIDDEN_QT) for n in ("PySide2.QtNetwork", "PySide2.QtCore.QLocalServer"))
+    assert {"PySide2.QtNetwork", "PySide2.QtNetwork.QTcpSocket", "PySide2.QtWebEngineWidgets",
+            "PySide2.QtCore.QLocalServer"} <= names
 
 
 def test_sources_run_on_python37():

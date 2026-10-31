@@ -239,11 +239,32 @@ def write_docx_package(path, body_xml, styles_xml=None, extra=None):
             z.writestr(name, data)
 
 
+_XML_INVALID = re.compile("[\x00-\x08\x0e-\x1f\ufffe\uffff\ud800-\udfff]")
+
+
+def text_runs_xml(text, props="", flatten=False):
+    """w:r elements for run text: escaped, \n \x0b U+2028 become w:br, \t w:tab, \r is dropped and other
+    characters that XML cannot hold are stripped. flatten=True turns breaks and tabs into spaces instead."""
+    rpr = "<w:rPr>%s</w:rPr>" % props if props else ""
+    if flatten:
+        text = re.sub("[\t\r\n\x0b\x0c\u2028]", " ", text)
+    text = text.replace("\r", "")
+    out = []
+    for piece in re.split("([\n\x0b\x0c\u2028\t])", text):
+        if piece in ("\n", "\x0b", "\x0c", "\u2028"):
+            out.append("<w:r>%s<w:br/></w:r>" % rpr)
+        elif piece == "\t":
+            out.append("<w:r>%s<w:tab/></w:r>" % rpr)
+        elif piece:
+            piece = _XML_INVALID.sub("", piece)
+            out.append('<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r>' % (rpr, escape(piece)))
+    return "".join(out)
+
+
 def plain_paragraphs_xml(texts):
     """w:p elements for plain paragraphs (used when a .doc can only be saved as a new .docx)."""
-    def flat(text):  # a tab or line break inside a w:t is not valid there: a space keeps the words apart
-        return text.replace("\t", " ").replace("\r", " ").replace("\n", " ")
-    return "".join('<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>' % escape(flat(t)) for t in texts)
+    # a tab or line break is flattened to a space: it keeps the words apart
+    return "".join("<w:p>%s</w:p>" % text_runs_xml(t, flatten=True) for t in texts)
 
 
 def _parse_xml_safe(xml_bytes, filename):

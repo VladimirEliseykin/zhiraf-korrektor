@@ -11,7 +11,7 @@ from . import storage
 from .documents.model import DocumentError
 from .documents.opener import close_document, open_document, save_document
 from .review import ReviewSession
-from .segment import plan_sentences
+from .segment import plan_sentences, sentence_kinds
 from .worker import CheckJob
 
 
@@ -29,9 +29,10 @@ def check_file(path, models, accept_errors=False, out=None, factories=None, stag
             raise CheckError(problem)
         paragraphs = [p.text for p in doc.paragraphs]
         sentences, where = plan_sentences(paragraphs)
+        kinds = sentence_kinds(doc.paragraphs, where)
         session = ReviewSession(paragraphs, storage.Dictionary())
         job = CheckJob(models, sentences, context=sentences, stages=stages, strict=settings["strict_mode"],
-                       threads=threads, factories=factories)
+                       threads=threads, factories=factories, structure=kinds, context_structure=kinds)
         try:
             job.start()
             while not job.finished:
