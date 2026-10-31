@@ -67,11 +67,19 @@ def log_error(exc):
 
 
 def _install_excepthook():
+    state = {"busy": False, "shown": False}   # one box per session: a slot that keeps raising must not stack boxes
+
     def hook(exc_type, exc, tb):
         try:
             if exc is not None:
                 log_error(exc)
-            _tell("critical", SOMETHING_WRONG)
+            if state["busy"] or state["shown"]:
+                return
+            state["busy"] = state["shown"] = True
+            try:
+                _tell("critical", SOMETHING_WRONG)
+            finally:
+                state["busy"] = False
         except Exception:
             pass
     sys.excepthook = hook

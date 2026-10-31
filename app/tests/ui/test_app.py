@@ -106,3 +106,23 @@ def test_excepthook_never_raises(monkeypatch):
         sys.excepthook(ValueError, ValueError("x"), None)   # must not raise
     finally:
         sys.excepthook = sys.__excepthook__
+
+
+def test_excepthook_shows_one_box_per_session_but_logs_every_exception(monkeypatch):
+    logged, shown = [], []
+
+    def tell(kind, text):   # an "open" box: the hook is called again while it is on screen
+        shown.append(text)
+        sys.excepthook(ValueError, ValueError("inside"), None)
+
+    monkeypatch.setattr(app, "log_error", lambda exc: logged.append(exc))
+    monkeypatch.setattr(app, "_tell", tell)
+    app._install_excepthook()
+    try:
+        sys.excepthook(ValueError, ValueError("a"), None)
+        sys.excepthook(ValueError, ValueError("b"), None)
+        sys.excepthook(ValueError, ValueError("c"), None)
+    finally:
+        sys.excepthook = sys.__excepthook__
+    assert len(shown) == 1
+    assert len(logged) == 4   # 3 calls + the one made while the box was open
