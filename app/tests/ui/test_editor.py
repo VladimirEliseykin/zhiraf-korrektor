@@ -129,6 +129,22 @@ def test_tooltip_of_fixed_mark_says_what_was_before(qtbot):
     assert editor.tooltip_text_at(2) is None
 
 
+def test_tooltip_shows_document_markup_literally(qtbot, monkeypatch):
+    from PySide2.QtCore import QEvent, QPoint
+    from PySide2.QtGui import QHelpEvent
+    from zhiraf.ui import editor as editor_module
+    doc, session = make(["Работа <img src=x> конец"])
+    session.add_findings(0, 0, [finding(6, 18, "текст")])
+    editor = shown(qtbot, doc, session)
+    session.accept()
+    editor.repaint_paragraphs([0])
+    shown_texts = []
+    monkeypatch.setattr(editor_module.QToolTip, "showText", lambda pos, text, *a: shown_texts.append(text))
+    monkeypatch.setattr(editor, "_position_at", lambda point: 8)
+    editor.event(QHelpEvent(QEvent.ToolTip, QPoint(1, 1), editor.viewport().mapToGlobal(QPoint(1, 1))))
+    assert shown_texts and "&lt;img src=x&gt;" in shown_texts[0] and "<img" not in shown_texts[0]
+
+
 def test_skipped_has_grey_fill(qtbot):
     doc, session = make(["Работа с информации"])
     session.add_findings(0, 0, [finding(9, 19, "информацией")])

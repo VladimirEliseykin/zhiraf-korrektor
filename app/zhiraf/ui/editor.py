@@ -1,4 +1,5 @@
 """The text of the document on "paper": one block per paragraph, marks as character formats."""
+import html
 from typing import Iterable, Optional
 
 from PySide2.QtCore import QEvent, QPointF, QRect, Qt, QTimer, Signal
@@ -229,7 +230,9 @@ class ReviewEditor(QTextEdit):
             position = self._position_at(self.viewport().mapFromGlobal(e.globalPos())) if self._doc else -1
             text = self.tooltip_text_at(position) if position >= 0 else None
             if text:
-                QToolTip.showText(e.globalPos(), text, self)
+                # the text holds the document's own words: escaped inside explicit rich text, so "<img src=...>"
+                # in a document is shown literally and never makes Qt load a resource
+                QToolTip.showText(e.globalPos(), "<p>%s</p>" % html.escape(text), self)
             else:
                 QToolTip.hideText()
             return True
