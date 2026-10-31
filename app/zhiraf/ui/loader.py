@@ -62,6 +62,13 @@ class OpenTask(QObject):
         """Drop the result; returns at once. The thread is waited for in close()."""
         self._cancelled = True
 
+    def wait(self, msec):
+        """Wait for the thread at most msec; True when it is finished (or never started)."""
+        if self._thread is None:
+            return True
+        self._thread.quit()   # the worker's own quit() is queued to this thread's event loop, which is not running
+        return self._thread.wait(msec)
+
     def close(self):
         self._stop_thread()
 

@@ -28,6 +28,7 @@ from .status import NoticeBar, ProgressPanel, StatusPanel
 
 TITLE = "Жираф.Корректор"
 RETIRE_POLL_MS = 50
+CLOSE_WAIT_S = 3.0
 CARD_WIDTH = 640
 CARD_SIDE_GAP = 32
 CONTEXT_CHARS = 20
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         self.session = None
         self.controller = None
         self.task = None
+        self.hard_exit = False        # a thread outlived the bounded wait: main() must leave with os._exit
         self._retiring = []           # cancelled opens whose thread still runs: kept alive, never waited for
         self._typed = False           # the reader typed into a pasted text since the last save
         self._title = None
@@ -371,10 +373,16 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, event):
+        started = time.monotonic()
         if self.close_document():
             for task in self._retiring:
-                task.close()      # process exit must not destroy a running thread
-            self._retiring = []
+                left = max(0, int((CLOSE_WAIT_S - (time.monotonic() - started)) * 1000))
+                if not task.wait(left):
+                    self.hard_exit = True   # still running: waiting longer would hang, destroying it would abort
+                else:
+                    task.close()
+            if not self.hard_exit:
+                self._retiring = []
             event.accept()
         else:
             event.ignore()
