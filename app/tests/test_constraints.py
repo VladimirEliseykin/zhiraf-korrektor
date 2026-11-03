@@ -1,13 +1,14 @@
-import ast
 import os
 import subprocess
 import sys
 
 import zhiraf
 
-FORBIDDEN = {"socket", "ssl", "urllib", "urllib2", "http", "httplib", "ftplib", "smtplib", "poplib", "imaplib",
-             "telnetlib", "xmlrpc", "requests", "asyncio", "websocket", "websockets", "selectors"}
-FORBIDDEN_QT = ("QtNetwork", "QtWebEngine", "QtQml", "QtMultimedia", "QLocalServer", "QTcpSocket")
+if zhiraf.ROOT not in sys.path:   # build/ lives at the repo root, outside app/
+    sys.path.insert(0, zhiraf.ROOT)
+
+from build.check_dist import FORBIDDEN, FORBIDDEN_QT_NAMES as FORBIDDEN_QT, imported_names  # noqa: E402  (one rule, shared with the folder check)
+
 SOURCE_DIRS = [os.path.join(zhiraf.ROOT, "app", "zhiraf"), os.path.join(zhiraf.ENGINE_DIR, "spellcheck")]
 
 
@@ -17,19 +18,6 @@ def python_files():
             for name in names:
                 if name.endswith(".py"):
                     yield os.path.join(folder, name)
-
-
-def imported_names(path):
-    with open(path, encoding="utf-8") as f:
-        tree = ast.parse(f.read(), path)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                yield alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            yield node.module
-            for alias in node.names:
-                yield node.module + "." + alias.name
 
 
 def test_sources_import_no_network_modules():

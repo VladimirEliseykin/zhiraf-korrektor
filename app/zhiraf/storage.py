@@ -12,7 +12,8 @@ import time
 import psutil
 
 APP_NAME = "Жираф.Корректор"
-DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True}
+DEFAULT_SETTINGS = {"show_checks": True, "strict_mode": False, "remember_recent": True,
+                    "shortcut_offered": False}
 MAX_RECENT = 20
 
 
@@ -26,6 +27,11 @@ def _base(kind):
     if kind == "data":
         return os.path.join(os.path.expanduser("~"), ".local", "share", "zhiraf-korrektor")
     return os.path.join(os.path.expanduser("~"), ".cache", "zhiraf-korrektor", "tmp")
+
+
+def data_path():
+    """The profile folder's path, without creating it (for messages)."""
+    return _base("data")
 
 
 def data_dir():

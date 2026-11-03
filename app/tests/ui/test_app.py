@@ -126,3 +126,31 @@ def test_excepthook_shows_one_box_per_session_but_logs_every_exception(monkeypat
         sys.excepthook = sys.__excepthook__
     assert len(shown) == 1
     assert len(logged) == 4   # 3 calls + the one made while the box was open
+
+
+def test_main_unwritable_profile_folder_tells_the_person_and_returns_3(qtbot, tmp_path, monkeypatch):
+    told = []
+    monkeypatch.setenv("ZHIRAF_HOME", str(tmp_path / "профиль"))
+
+    def refuse():
+        raise OSError(13, "denied")
+
+    monkeypatch.setattr(storage, "data_dir", refuse)
+    monkeypatch.setattr(app, "_tell", lambda kind, text: told.append((kind, text)))
+    assert app.main(["zhiraf"]) == 3
+    assert len(told) == 1 and told[0][0] == "critical"
+    assert str(tmp_path / "профиль") in told[0][1] and "права на запись" in told[0][1]
+
+
+def test_main_clean_tmp_failure_returns_3_and_frees_the_lock(qtbot, monkeypatch):
+    told = []
+
+    def refuse():
+        raise OSError(13, "denied")
+
+    monkeypatch.setattr(storage, "clean_tmp", refuse)
+    monkeypatch.setattr(app, "_tell", lambda kind, text: told.append((kind, text)))
+    assert app.main(["zhiraf"]) == 3 and told[0][0] == "critical"
+    lock = app.acquire_single_instance()
+    assert lock is not None
+    lock.unlock()
