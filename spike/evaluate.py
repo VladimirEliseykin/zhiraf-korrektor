@@ -8,13 +8,7 @@ import psutil
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-
-def normalize(text):
-    text = text.replace("ё", "е").replace("Ё", "Е")
-    text = text.replace("—", "-").replace("–", "-")
-    text = text.replace("«", '"').replace("»", '"')
-    text = re.sub(r"\b([А-ЯA-Z])\. (?=[А-ЯA-Z]\.)", r"\1.", text)
-    return re.sub(r"\s+", " ", text).strip()
+from textnorm import normalize  # noqa: F401  (re-exported: older scripts import it from here)
 
 
 def postprocess(src, out):
