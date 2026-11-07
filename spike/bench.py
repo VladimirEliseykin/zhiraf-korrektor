@@ -5,9 +5,8 @@ import json
 import os
 import sys
 
-sys.path.insert(0, "/home/general/vm/win7/payload")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from infer_onnx import normalize  # noqa: E402
+from textnorm import normalize  # noqa: E402
 from guards import TOKEN, prepare  # noqa: E402
 import policy  # noqa: E402
 

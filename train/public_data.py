@@ -24,7 +24,6 @@ PUB = MAIN + "data-public/"
 OUT = PUB + "converted/"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, MAIN + "spike")
-sys.path.insert(0, MAIN + "payload")
 
 KEY = re.compile(r"[^\w]+")
 SPLIT = re.compile(r"(?<=[.!?…])\s+(?=[А-ЯЁA-Z«\"(\d—-])")

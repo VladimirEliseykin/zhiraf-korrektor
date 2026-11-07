@@ -31,6 +31,19 @@ def postprocess(src, out):
     return out
 
 
+def past_geometry(inputs, default=(6, 64)):
+    """(num_heads, head_dim) of the decoder's key/value cache, read from the shape [batch, heads, length, head_dim]
+    of its first past_key_values input (the 95m model has 6 x 64, the large one 16 x 64). A model whose shape is
+    symbolic gets the default."""
+    for i in inputs:
+        if i.name.startswith("past_key_values."):
+            shape = list(i.shape)
+            if len(shape) == 4 and isinstance(shape[1], int) and isinstance(shape[3], int):
+                return shape[1], shape[3]
+            break
+    return default
+
+
 class Sage:
     def __init__(self, model_dir, threads=2):
         options = session_options(ort, threads)
@@ -41,8 +54,7 @@ class Sage:
         self.tokenizer = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
         self.past_names = [i.name for i in self.decoder.get_inputs() if i.name.startswith("past_key_values.")]
         self.output_names = [o.name for o in self.decoder.get_outputs()]
-        self.num_heads = 6
-        self.head_dim = 64
+        self.num_heads, self.head_dim = past_geometry(self.decoder.get_inputs())
 
     def correct(self, text):
         # the model was trained with the <LM> prefix the tokenizer adds; without it output degenerates

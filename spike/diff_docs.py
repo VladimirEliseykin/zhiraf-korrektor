@@ -2,11 +2,12 @@
 import collections
 import difflib
 import json
+import os
 import re
 import sys
 
-sys.path.insert(0, "/home/general/vm/win7/payload")
-from infer_onnx import normalize  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from textnorm import normalize  # noqa: E402
 
 TOKEN = re.compile(r"\w+(?:-\w+)*|[^\w\s]")
 
