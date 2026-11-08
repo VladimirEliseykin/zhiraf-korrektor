@@ -1,0 +1,88 @@
+name: release
+
+# A version tag builds the Windows 7 folder WITHOUT models and attaches it to a GitHub Release.
+# The models (about 7 GB) are never uploaded: the person who prepares the USB stick adds them with build.add_models.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+      LC_ALL: C.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      # what PySide2 5.15 needs to load offscreen (the icon step and the tests use QtGui)
+      - name: System libraries for Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0 libfreetype6 zip
+
+      # the same pins as app/requirements-*.txt
+      - name: Python packages
+        run: pip install PySide2==5.15.2.1 shiboken2==5.15.2.1 pytest==7.4.4
+
+      - name: Cache of downloaded dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/zhiraf-dist
+          key: zhiraf-dist-${{ hashFiles('build/deps.lock') }}
+
+      - name: Tests of the build
+        run: python -m pytest app/tests/build -q -p no:cacheprovider
+
+      - name: Build the folder without models
+        run: python -m build.build_dist --out out --no-models --cache ~/.cache/zhiraf-dist
+
+      - name: Zip and checksum
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # the zip has an ASCII name; the entries keep UTF-8 names (Info-ZIP sets the UTF-8 flag)
+          NAME="Zhiraf-Korrektor-${REF_NAME//\//-}-bez-modeley.zip"
+          echo "ZIP_NAME=$NAME" >> "$GITHUB_ENV"
+          (cd out && zip -r -X "../$NAME" "Жираф.Корректор")
+          sha256sum "$NAME" > "$NAME.sha256"
+          ls -l "$NAME" "$NAME.sha256"
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Архив без моделей: в нём сама программа, а модели (около 7 ГБ) в репозиторий не кладутся.
+
+          1. Распаковывайте архив в Windows 10/11 или в Linux. Встроенная распаковка Windows 7 портит русские имена файлов.
+          2. Добавьте модели в распакованную папку: `python -m build.add_models <папка Жираф.Корректор> <папка с моделями>`. Команда копирует модели и проверяет папку.
+          3. Дальше читайте ИНСТРУКЦИЯ.txt в корне папки.
+
+          Контрольная сумма архива лежит рядом, в файле .sha256.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" "$ZIP_NAME" "$ZIP_NAME.sha256" \
+            --title "Жираф.Корректор $GITHUB_REF_NAME (без моделей)" \
+            --notes-file notes.md
+
+      - name: Keep the build as an artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhiraf-bez-modeley
+          path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
+          if-no-files-found: error
