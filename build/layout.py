@@ -14,14 +14,10 @@ _VC_PREFIXES = ("vcruntime", "msvcp", "concrt", "vcomp", "vcamp", "vccorlib")
 _UCRT_DIR = "Library/bin/"
 _SKIP_DIRS = ("__pycache__", "tests")
 
-README = (
-    "Жираф.Корректор проверяет русский текст без интернета. Чтобы начать, откройте «Жираф.Корректор.exe».\r\n"
-    "Ваш текст никуда не отправляется: программа не выходит в сеть.\r\n"
-    "Журнал ошибок (файл «журнал.txt») — в папке «Жираф.Корректор», её можно открыть, "
-    "введя %APPDATA% в строке проводника.\r\n"
-    "В нём нет текста документов.\r\n"
-    "Папку можно переносить целиком, например на флешку.\r\n"
-)
+INSTRUCTION = "ИНСТРУКЦИЯ.txt"
+MODELS_PLACEHOLDER = "ПОЛОЖИТЕ-СЮДА-МОДЕЛИ.txt"
+_PLACEHOLDER_TEXT = ("Модели сюда добавляет тот, кто готовит флешку; "
+                     "без них программа не запустится.\r\n")
 
 
 def _safe_join(base, name):
@@ -96,8 +92,11 @@ def _put_models(models, dest, link):
     return fallback, fallback_bytes
 
 
-def lay_out(dist, files, repo, models, link_models=True):
-    """Build the folder in `dist`, which must be absent or empty."""
+def lay_out(dist, files, repo, models, link_models=True, with_models=True):
+    """Build the folder in `dist`, which must be absent or empty.
+
+    Without models, `models/` holds only a note that tells where they come from (build.add_models adds them).
+    """
     if os.path.exists(dist) and os.listdir(dist):
         raise FileExistsError("dist folder is not empty: %s" % dist)
     os.makedirs(dist, exist_ok=True)
@@ -132,9 +131,17 @@ def lay_out(dist, files, repo, models, link_models=True):
     os.makedirs(art)
     shutil.copy2(os.path.join(repo, "engine", "art", "start.jpg"), os.path.join(art, "start.jpg"))
 
-    copied, size = _put_models(models, os.path.join(dist, "models"), link_models)
-    if copied:
-        print("модели: жёсткие ссылки не удались, скопировано %d файлов (%.1f ГБ)" % (copied, size / 1e9))
+    if with_models:
+        copied, size = _put_models(models, os.path.join(dist, "models"), link_models)
+        if copied:
+            print("модели: жёсткие ссылки не удались, скопировано %d файлов (%.1f ГБ)" % (copied, size / 1e9))
+    else:
+        os.makedirs(os.path.join(dist, "models"))
+        with open(os.path.join(dist, "models", MODELS_PLACEHOLDER), "wb") as f:
+            f.write(_PLACEHOLDER_TEXT.encode("utf-8-sig"))
 
-    with open(os.path.join(dist, "ЧИТАЙ-МЕНЯ.txt"), "wb") as f:
-        f.write(README.encode("utf-8-sig"))
+    # Notepad of Windows 7 needs the BOM and CRLF to show the Cyrillic text in lines
+    with open(os.path.join(repo, "build", INSTRUCTION), encoding="utf-8-sig", newline="") as f:
+        text = f.read().replace("\r\n", "\n").replace("\n", "\r\n")
+    with open(os.path.join(dist, INSTRUCTION), "wb") as f:
+        f.write(text.encode("utf-8-sig"))

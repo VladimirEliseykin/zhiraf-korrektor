@@ -7,7 +7,7 @@ import os
 import sys
 
 from build import prune as prune_mod
-from build.layout import REQUIRED_DLLS
+from build.layout import MODELS_PLACEHOLDER, REQUIRED_DLLS
 
 # Source files must not import these (the same rule as app/tests/test_constraints.py, which imports it from here).
 FORBIDDEN = {"socket", "ssl", "urllib", "urllib2", "http", "httplib", "ftplib", "smtplib", "poplib", "imaplib",
@@ -20,7 +20,7 @@ SOCKET_NOTE = ("allowed: socket.py, _socket.pyd and select.pyd stay in the folde
 REQUIRED_FILES = (
     os.path.join("python", "pythonw.exe"),
     "Жираф.Корректор.exe",
-    os.path.join("models", "vocab.tsv"),
+    "ИНСТРУКЦИЯ.txt",
     os.path.join("engine", "art", "start.jpg"),
     os.path.join("app", "zhiraf", "ui", "art", "logo.png"),
     # hard to find when missing: without qt.conf Qt loses its plugins under a Cyrillic or spaced path (the window
@@ -84,10 +84,12 @@ def _model_violations(dist, models):
                 yield "empty model file: %s" % os.path.join("models", name, part)
 
 
-def check(dist, models=None):
+def check(dist, models=None, require_models=True):
     """Violations found in the folder; an empty list means it is clean.
 
     `models` is the source models dir the build was given: its folders are the list of models the folder must hold.
+    `require_models=False` is the build without models: vocab.tsv and the model folders are not needed, but the
+    placeholder note must be there (add_models removes it).
     """
     found = []
     zip_path = os.path.join(dist, prune_mod.PYTHON_DIR, prune_mod.ZIP_NAME)
@@ -98,7 +100,12 @@ def check(dist, models=None):
     for rel in [os.path.join("python", n) for n in REQUIRED_DLLS] + list(REQUIRED_FILES):
         if not os.path.isfile(os.path.join(dist, rel)):
             found.append("missing: %s" % rel)
-    if models is not None:
+    if require_models:
+        if not os.path.isfile(os.path.join(dist, "models", "vocab.tsv")):
+            found.append("missing: %s" % os.path.join("models", "vocab.tsv"))
+    elif not os.path.isfile(os.path.join(dist, "models", MODELS_PLACEHOLDER)):
+        found.append("missing: %s" % os.path.join("models", MODELS_PLACEHOLDER))
+    if require_models and models is not None:
         found += list(_model_violations(dist, models))
     return found
 

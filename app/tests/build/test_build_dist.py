@@ -48,6 +48,8 @@ def world(tmp_path, monkeypatch):
     (repo / "engine" / "spellcheck" / "core.py").write_text("import os\n")
     (repo / "engine" / "art").mkdir()
     (repo / "engine" / "art" / "start.jpg").write_bytes(b"jpg")
+    (repo / "build").mkdir()
+    (repo / "build" / "ИНСТРУКЦИЯ.txt").write_text("текст\n", encoding="utf-8")
     models = tmp_path / "models"
     models.mkdir()
     (models / "vocab.tsv").write_text("a\n")
@@ -81,7 +83,7 @@ def test_successful_build(world, capsys):
 
 def test_check_violation_fails_and_cleans_up(world, monkeypatch, capsys):
     args, out = world
-    monkeypatch.setattr(build_dist, "check", lambda d, m=None: ["forbidden file: python/_ssl.pyd"])
+    monkeypatch.setattr(build_dist, "check", lambda d, m=None, require_models=True: ["forbidden file: python/_ssl.pyd"])
     assert build_dist.main(args) == 1
     assert not (out / "Жираф.Корректор").exists()
     assert not (out / "Жираф.Корректор.tmp").exists()
@@ -106,3 +108,33 @@ def test_existing_folder_is_refused_and_kept(world, capsys):
     assert build_dist.main(args) == 1
     assert "уже есть, удалите её" in capsys.readouterr().out
     assert (out / "Жираф.Корректор" / "keep.txt").is_file()
+
+
+def test_no_models_build_holds_only_the_placeholder(world):
+    args, out = world
+    assert build_dist.main(args + ["--no-models"]) == 0
+    dist = out / "Жираф.Корректор"
+    assert sorted(os.listdir(str(dist / "models"))) == ["ПОЛОЖИТЕ-СЮДА-МОДЕЛИ.txt"]
+    assert (dist / "ИНСТРУКЦИЯ.txt").is_file()
+    assert not (dist / "ЧИТАЙ-МЕНЯ.txt").exists()
+
+
+def test_no_models_build_works_without_a_models_dir(world):
+    args, out = world
+    i = args.index("--models")
+    args = args[:i] + args[i + 2:]  # the default engine/models may be absent on a runner
+    assert build_dist.main(args + ["--no-models"]) == 0
+
+
+def test_no_models_build_still_fails_on_other_violations(world, monkeypatch, capsys):
+    args, out = world
+    real = build_dist.check
+    seen = []
+
+    def spy(d, m=None, require_models=True):
+        seen.append(require_models)
+        return real(d, m, require_models=require_models) + ["forbidden file: python/_ssl.pyd"]
+    monkeypatch.setattr(build_dist, "check", spy)
+    assert build_dist.main(args + ["--no-models"]) == 1
+    assert seen == [False]
+    assert not (out / "Жираф.Корректор").exists()

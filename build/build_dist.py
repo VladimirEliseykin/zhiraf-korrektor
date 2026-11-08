@@ -1,6 +1,6 @@
 """Build the Windows 7 folder with one command (host only).
 
-Usage: python -m build.build_dist --out <dir> [--cache DIR] [--models DIR] [--copy-models]
+Usage: python -m build.build_dist --out <dir> [--cache DIR] [--models DIR] [--copy-models] [--no-models]
 """
 import argparse
 import os
@@ -50,7 +50,7 @@ def _stats(path):
     return size, count
 
 
-def build(out, cache, models, repo, copy_models):
+def build(out, cache, models, repo, copy_models, with_models=True):
     final = os.path.join(out, NAME)
     tmp = final + ".tmp"
     if os.path.exists(final):
@@ -59,13 +59,13 @@ def build(out, cache, models, repo, copy_models):
     os.makedirs(out, exist_ok=True)
     try:
         files = fetch_all(cache_dir=cache)
-        lay_out(tmp, files, repo, models, link_models=not copy_models)
+        lay_out(tmp, files, repo, models, link_models=not copy_models, with_models=with_models)
         prune(tmp)
         with tempfile.TemporaryDirectory() as work:
             ico = os.path.join(work, "zhiraf.ico")
             make_icon(os.path.join(repo, "app", "zhiraf", "ui", "art", "logo.png"), ico)
             make_launcher(toolchain_dir(files, cache), os.path.join(tmp, NAME + ".exe"), ico)
-        violations = check(tmp, models)
+        violations = check(tmp, models if with_models else None, require_models=with_models)
         if violations:
             raise RuntimeError("проверка папки не пройдена:\n" + "\n".join("  " + v for v in violations))
         os.replace(tmp, final)
@@ -83,10 +83,12 @@ def main(argv):
     p.add_argument("--repo", default=ROOT)
     p.add_argument("--copy-models", action="store_true",
                    help="copy the models instead of hard-linking them (for another filesystem)")
+    p.add_argument("--no-models", action="store_true",
+                   help="lay out everything except the models (build.add_models adds them later)")
     a = p.parse_args(argv)
     try:
         final = build(os.path.abspath(os.path.expanduser(a.out)), os.path.expanduser(a.cache),
-                      os.path.abspath(a.models), os.path.abspath(a.repo), a.copy_models)
+                      os.path.abspath(a.models), os.path.abspath(a.repo), a.copy_models, not a.no_models)
     except Exception as e:
         print("сборка не удалась: %s" % e)
         return 1
