@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 
-from build import check_dist, prune as prune_mod
+from build import check_dist, layout, prune as prune_mod
 from build.layout import REQUIRED_DLLS
 
 PY = os.path.join("python")
@@ -42,7 +42,7 @@ def clean(tmp_path):
         put(dist, os.path.join(PY, n))
     for rel in ("python/pythonw.exe", "Жираф.Корректор.exe", "models/vocab.tsv", "engine/art/start.jpg",
                 "app/zhiraf/ui/art/logo.png", "python/socket.py", "python/_socket.pyd", "python/select.pyd",
-                "python/qt.conf", "python/python37._pth"):
+                "python/qt.conf", "python/python37._pth", "ИНСТРУКЦИЯ.txt"):
         put(dist, rel)
     put(dist, "app/zhiraf/ok.py", b"import os\n")
     make_zip(dist, ["json/__init__.py", "urllib/parse.py"])
@@ -56,7 +56,7 @@ def dirty(tmp_path):
         put(dist, os.path.join(PY, n))
     for rel in ("python/pythonw.exe", "Жираф.Корректор.exe", "models/vocab.tsv", "engine/art/start.jpg",
                 "app/zhiraf/ui/art/logo.png", "python/socket.py", "python/_socket.pyd", "python/select.pyd",
-                "python/qt.conf", "python/python37._pth", "python/_ssl.pyd", "python/_hashlib.pyd", "python/libssl-1_1.dll", "python/libcrypto-1_1.dll",
+                "python/qt.conf", "python/python37._pth", "ИНСТРУКЦИЯ.txt", "python/_ssl.pyd", "python/_hashlib.pyd", "python/libssl-1_1.dll", "python/libcrypto-1_1.dll",
                 "python/_asyncio.pyd", "python/_overlapped.pyd", "python/_msi.pyd", "python/winsound.pyd",
                 PYSIDE + "/QtNetwork.pyd", PYSIDE + "/Qt5Network.dll", PYSIDE + "/QtWebEngineCore.pyd",
                 PYSIDE + "/Qt5WebEngineCore.dll", PYSIDE + "/QtQml.pyd", PYSIDE + "/Qt5Quick.dll",
@@ -301,3 +301,30 @@ def test_check_flags_a_missing_model_folder(with_models):
     shutil.rmtree(os.path.join(str(dist), "models", "commas-3"))
     found = check_dist.check(str(dist), models)
     assert len(found) == 2 and all("commas-3" in v for v in found)
+
+
+def test_check_without_models_does_not_need_vocab_or_model_folders(clean):
+    os.remove(os.path.join(str(clean), "models", "vocab.tsv"))
+    put(clean, "models/" + layout.MODELS_PLACEHOLDER, b"x")
+    assert check_dist.check(str(clean), require_models=False) == []
+
+
+def test_check_without_models_still_checks_everything_else(clean):
+    os.remove(os.path.join(str(clean), "models", "vocab.tsv"))
+    put(clean, "models/" + layout.MODELS_PLACEHOLDER, b"x")
+    os.remove(os.path.join(str(clean), PY, "qt.conf"))
+    put(clean, "python/_ssl.pyd")
+    found = check_dist.check(str(clean), require_models=False)
+    assert len(found) == 2 and any("qt.conf" in v for v in found) and any("_ssl.pyd" in v for v in found)
+
+
+def test_check_without_models_wants_the_placeholder(clean):
+    os.remove(os.path.join(str(clean), "models", "vocab.tsv"))
+    found = check_dist.check(str(clean), require_models=False)
+    assert len(found) == 1 and layout.MODELS_PLACEHOLDER in found[0]
+
+
+def test_check_requires_the_instruction(clean):
+    os.remove(os.path.join(str(clean), "ИНСТРУКЦИЯ.txt"))
+    found = check_dist.check(str(clean))
+    assert len(found) == 1 and "ИНСТРУКЦИЯ.txt" in found[0]

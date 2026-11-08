@@ -58,6 +58,8 @@ def world(tmp_path):
     (repo / "engine" / "art").mkdir()
     (repo / "engine" / "art" / "start.jpg").write_bytes(b"jpg")
     (repo / "engine" / "art" / "other.png").write_bytes(b"png")
+    (repo / "build").mkdir()
+    (repo / "build" / "ИНСТРУКЦИЯ.txt").write_bytes("Первая строка\nВторая «строка»\n".encode("utf-8"))
     models = tmp_path / "models"
     (models / "sage").mkdir(parents=True)
     (models / "sage" / "model.onnx").write_bytes(b"m" * 10)
@@ -154,18 +156,41 @@ def test_non_empty_dist_refused(world):
         lay_out(dist, files, repo, models)
 
 
-def test_readme_utf8_bom(world):
+def test_instruction_is_copied_with_bom_and_crlf(world):
     files, repo, models, dist = world
     lay_out(dist, files, repo, models)
-    with open(os.path.join(dist, "ЧИТАЙ-МЕНЯ.txt"), "rb") as f:
+    with open(os.path.join(dist, "ИНСТРУКЦИЯ.txt"), "rb") as f:
         raw = f.read()
-    assert raw.startswith(b"\xef\xbb\xbf")
-    lines = raw.decode("utf-8-sig").splitlines()
-    assert 3 <= len([l for l in lines if l.strip()]) <= 5
-    assert b"\r\n" in raw
-    text = raw.decode("utf-8-sig")
+    assert raw == b"\xef\xbb\xbf" + "Первая строка\r\nВторая «строка»\r\n".encode("utf-8")
+    assert not os.path.exists(os.path.join(dist, "ЧИТАЙ-МЕНЯ.txt"))
+
+
+def test_instruction_with_bom_and_crlf_is_not_doubled(world):
+    files, repo, models, dist = world
+    with open(os.path.join(repo, "build", "ИНСТРУКЦИЯ.txt"), "wb") as f:
+        f.write(b"\xef\xbb\xbf" + "а\r\nб\r\n".encode("utf-8"))
+    lay_out(dist, files, repo, models)
+    with open(os.path.join(dist, "ИНСТРУКЦИЯ.txt"), "rb") as f:
+        assert f.read() == b"\xef\xbb\xbf" + "а\r\nб\r\n".encode("utf-8")
+
+
+def test_real_instruction_has_the_facts(tmp_path):
+    real = os.path.join(os.path.dirname(layout.__file__), "ИНСТРУКЦИЯ.txt")
+    with open(real, encoding="utf-8-sig") as f:
+        text = f.read()
     for needle in ("%APPDATA%", "журнал.txt", "Жираф.Корректор.exe"):
         assert needle in text
+
+
+def test_without_models_only_the_placeholder_is_laid_out(world):
+    files, repo, models, dist = world
+    lay_out(dist, files, repo, models, with_models=False)
+    names = os.listdir(os.path.join(dist, "models"))
+    assert names == [layout.MODELS_PLACEHOLDER]
+    with open(os.path.join(dist, "models", layout.MODELS_PLACEHOLDER), "rb") as f:
+        raw = f.read()
+    assert raw.startswith(b"\xef\xbb\xbf") and raw.endswith(b"\r\n") and raw.count(b"\r\n") == 1
+    assert "флешк" in raw.decode("utf-8-sig")
 
 
 def test_model_copy_fallback_is_counted_and_reported(world, monkeypatch, capsys):
